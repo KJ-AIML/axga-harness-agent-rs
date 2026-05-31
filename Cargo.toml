@@ -1,0 +1,74 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/axga-shared",
+  "crates/axga-ai",
+  "crates/axga-core",
+  "crates/axga-tui",
+  "crates/axga-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["AXGA Contributors"]
+repository = "https://github.com/axga/axga-harness-agent-rs"
+rust-version = "1.88"
+
+[workspace.dependencies]
+# ── Async Runtime ──
+tokio = { version = "1.43", features = ["full"] }
+futures = "0.3"
+tokio-stream = "0.1"
+
+# ── Serialization ──
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# ── Error Handling ──
+thiserror = "2"
+anyhow = "1"
+
+# ── HTTP ──
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+
+# ── CLI ──
+clap = { version = "4", features = ["derive"] }
+
+# ── TUI ──
+ratatui = "0.29"
+crossterm = "0.28"
+
+# ── File / Text ──
+glob = "0.3"
+regex = "1"
+similar = "2"
+
+# ── Logging ──
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# ── Utilities ──
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+portable-pty = "0.8"
+syntect = "5"
+base64 = "0.22"
+bytes = "1"
+
+# ── Internal Crates ──
+axga-shared = { path = "crates/axga-shared" }
+axga-ai = { path = "crates/axga-ai" }
+axga-core = { path = "crates/axga-core" }
+axga-tui = { path = "crates/axga-tui" }
+axga-cli = { path = "crates/axga-cli" }
+
+# ── Release Profile ──
+[profile.release]
+opt-level = "s"       # Optimize for size (not speed)
+lto = true            # Link-time optimization
+codegen-units = 1     # Single codegen unit for better inlining
+strip = true          # Strip debug symbols
+panic = "abort"       # Smaller binary, no unwinding tables

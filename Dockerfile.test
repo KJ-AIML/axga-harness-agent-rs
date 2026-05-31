@@ -1,0 +1,26 @@
+FROM ubuntu:24.04
+
+# Install system deps + Rust
+RUN apt-get update && apt-get install -y \
+    curl build-essential pkg-config libssl-dev \
+    time procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Verify
+RUN rustc --version && cargo --version
+
+WORKDIR /axga
+
+# Copy project
+COPY . .
+
+# Build release
+RUN cargo build --release -p axga-cli 2>&1
+RUN ls -lh target/release/axga
+
+# Set entry for testing
+ENTRYPOINT ["/bin/bash"]
