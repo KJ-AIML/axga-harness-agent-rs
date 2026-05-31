@@ -201,80 +201,61 @@ impl App {
     }
 
     fn render_chat(&self, f: &mut Frame, area: Rect, gutter: u16) {
-        // Calculate visible area
-        let visible_height = area.height.saturating_sub(2) as usize; // minus borders
-        let total_lines = self.chat_lines.len();
-        let max_scroll = total_lines.saturating_sub(visible_height);
-        let scroll = self.scroll_offset.min(max_scroll as u16) as usize;
+        let pad = " ".repeat(gutter as usize);
 
-        let mut lines: Vec<Line> = Vec::new();
-
-        for chat_line in self.chat_lines.iter().skip(scroll).take(visible_height + 1) {
+        let lines: Vec<Line> = self.chat_lines.iter().map(|chat_line| {
             match chat_line {
-                ChatLine::User(text) => {
-                    lines.push(Line::from(vec![
-                        Span::styled(" ✦  ", Style::default().fg(self.theme.role_user).add_modifier(Modifier::BOLD)),
-                        Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
-                    ]));
-                }
-                ChatLine::Assistant(text) => {
-                    lines.push(Line::from(vec![
-                        Span::styled(" ●  ", Style::default().fg(self.theme.role_assistant).add_modifier(Modifier::BOLD)),
-                        Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
-                    ]));
-                }
-                ChatLine::Tool { name, detail } => {
-                    lines.push(Line::from(vec![
-                        Span::styled(" ⚙  ", Style::default().fg(self.theme.role_tool)),
-                        Span::styled(name.as_str(), Style::default().fg(self.theme.role_tool).add_modifier(Modifier::BOLD)),
-                        Span::styled(" → ", Style::default().fg(self.theme.text_muted)),
-                        Span::styled(detail.as_str(), Style::default().fg(self.theme.text_dim)),
-                    ]));
-                }
-                ChatLine::Info(text) => {
-                    lines.push(Line::from(vec![
-                        Span::styled("  ℹ  ", Style::default().fg(self.theme.text_muted)),
-                        Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim)),
-                    ]));
-                }
-                ChatLine::Error(text) => {
-                    lines.push(Line::from(vec![
-                        Span::styled(" ✗  ", Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
-                        Span::styled(text.as_str(), Style::default().fg(self.theme.error)),
-                    ]));
-                }
+                ChatLine::User(text) => Line::from(vec![
+                    Span::raw(&pad),
+                    Span::styled(" ✦  ", Style::default().fg(self.theme.role_user).add_modifier(Modifier::BOLD)),
+                    Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
+                ]),
+                ChatLine::Assistant(text) => Line::from(vec![
+                    Span::raw(&pad),
+                    Span::styled(" ●  ", Style::default().fg(self.theme.role_assistant).add_modifier(Modifier::BOLD)),
+                    Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
+                ]),
+                ChatLine::Tool { name, detail } => Line::from(vec![
+                    Span::raw(&pad),
+                    Span::styled(" ⚙  ", Style::default().fg(self.theme.role_tool)),
+                    Span::styled(name.as_str(), Style::default().fg(self.theme.role_tool).add_modifier(Modifier::BOLD)),
+                    Span::styled(" → ", Style::default().fg(self.theme.text_muted)),
+                    Span::styled(detail.as_str(), Style::default().fg(self.theme.text_dim)),
+                ]),
+                ChatLine::Info(text) => Line::from(vec![
+                    Span::raw(&pad),
+                    Span::styled("  ℹ  ", Style::default().fg(self.theme.text_muted)),
+                    Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim)),
+                ]),
+                ChatLine::Error(text) => Line::from(vec![
+                    Span::raw(&pad),
+                    Span::styled(" ✗  ", Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
+                    Span::styled(text.as_str(), Style::default().fg(self.theme.error)),
+                ]),
                 ChatLine::Thinking(text) => {
                     let spinner = crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
-                    lines.push(Line::from(vec![
+                    Line::from(vec![
+                        Span::raw(&pad),
                         Span::styled(format!(" {}  ", spinner), Style::default().fg(self.theme.role_thinking)),
                         Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim).add_modifier(Modifier::ITALIC)),
-                    ]));
+                    ])
                 }
-                ChatLine::Spacer => {
-                    lines.push(Line::from(""));
-                }
+                ChatLine::Spacer => Line::from(pad.as_str()),
             }
-        }
+        }).collect();
 
-        // Padding
-        let padded_lines: Vec<Line> = lines
-            .into_iter()
-            .map(|l| {
-                let mut spans = vec![Span::raw(" ".repeat(gutter as usize))];
-                spans.extend(l.spans);
-                Line::from(spans)
-            })
-            .collect();
-
-        let chat = Paragraph::new(padded_lines)
+        let chat = Paragraph::new(lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(self.theme.border))
                     .title(Span::styled(" AXGA ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD))),
             )
-            .wrap(ratatui::widgets::Wrap { trim: true })
+            .wrap(ratatui::widgets::Wrap { trim: false })
             .scroll((self.scroll_offset, 0));
+
+        f.render_widget(chat, area);
+    }
 
         f.render_widget(chat, area);
     }
