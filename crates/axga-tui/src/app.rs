@@ -19,6 +19,7 @@
 //! ```
 
 use crate::theme::Theme;
+use crate::markdown::{self, MarkdownTheme};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
@@ -36,6 +37,7 @@ pub struct App {
     pub spinner_idx: usize,
     pub is_streaming: bool,
     pub cursor_pos: usize,
+    markdown_theme: MarkdownTheme,
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +91,7 @@ impl App {
             spinner_idx: 0,
             is_streaming: false,
             cursor_pos: 0,
+            markdown_theme: MarkdownTheme::default(),
         }
     }
 
@@ -202,47 +205,65 @@ impl App {
 
     fn render_chat(&self, f: &mut Frame, area: Rect, gutter: u16) {
         let pad = " ".repeat(gutter as usize);
+        let mut lines: Vec<Line> = Vec::new();
 
-        let lines: Vec<Line> = self.chat_lines.iter().map(|chat_line| {
+        for chat_line in &self.chat_lines {
             match chat_line {
-                ChatLine::User(text) => Line::from(vec![
-                    Span::raw(&pad),
-                    Span::styled(" ✦  ", Style::default().fg(self.theme.role_user).add_modifier(Modifier::BOLD)),
-                    Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
-                ]),
-                ChatLine::Assistant(text) => Line::from(vec![
-                    Span::raw(&pad),
-                    Span::styled(" ●  ", Style::default().fg(self.theme.role_assistant).add_modifier(Modifier::BOLD)),
-                    Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
-                ]),
-                ChatLine::Tool { name, detail } => Line::from(vec![
-                    Span::raw(&pad),
-                    Span::styled(" ⚙  ", Style::default().fg(self.theme.role_tool)),
-                    Span::styled(name.as_str(), Style::default().fg(self.theme.role_tool).add_modifier(Modifier::BOLD)),
-                    Span::styled(" → ", Style::default().fg(self.theme.text_muted)),
-                    Span::styled(detail.as_str(), Style::default().fg(self.theme.text_dim)),
-                ]),
-                ChatLine::Info(text) => Line::from(vec![
-                    Span::raw(&pad),
-                    Span::styled("  ℹ  ", Style::default().fg(self.theme.text_muted)),
-                    Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim)),
-                ]),
-                ChatLine::Error(text) => Line::from(vec![
-                    Span::raw(&pad),
-                    Span::styled(" ✗  ", Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
-                    Span::styled(text.as_str(), Style::default().fg(self.theme.error)),
-                ]),
+                ChatLine::User(text) => {
+                    lines.push(Line::from(vec![
+                        Span::raw(&pad),
+                        Span::styled(" ✦  ", Style::default().fg(self.theme.role_user).add_modifier(Modifier::BOLD)),
+                        Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
+                    ]));
+                }
+                ChatLine::Assistant(text) => {
+                    let md_text = markdown::render_markdown(text, &self.markdown_theme);
+                    for (i, md_line) in md_text.lines.iter().enumerate() {
+                        let bullet = if i == 0 { " ●  " } else { "    " };
+                        let mut spans = vec![
+                            Span::raw(&pad),
+                            Span::styled(bullet, Style::default().fg(self.theme.role_assistant).add_modifier(Modifier::BOLD)),
+                        ];
+                        spans.extend(md_line.spans.iter().map(|s| Span::styled(s.content.to_string(), s.style)));
+                        lines.push(Line::from(spans));
+                    }
+                }
+                ChatLine::Tool { name, detail } => {
+                    lines.push(Line::from(vec![
+                        Span::raw(&pad),
+                        Span::styled(" ⚙  ", Style::default().fg(self.theme.role_tool)),
+                        Span::styled(name.as_str(), Style::default().fg(self.theme.role_tool).add_modifier(Modifier::BOLD)),
+                        Span::styled(" → ", Style::default().fg(self.theme.text_muted)),
+                        Span::styled(detail.as_str(), Style::default().fg(self.theme.text_dim)),
+                    ]));
+                }
+                ChatLine::Info(text) => {
+                    lines.push(Line::from(vec![
+                        Span::raw(&pad),
+                        Span::styled("  ℹ  ", Style::default().fg(self.theme.text_muted)),
+                        Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim)),
+                    ]));
+                }
+                ChatLine::Error(text) => {
+                    lines.push(Line::from(vec![
+                        Span::raw(&pad),
+                        Span::styled(" ✗  ", Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
+                        Span::styled(text.as_str(), Style::default().fg(self.theme.error)),
+                    ]));
+                }
                 ChatLine::Thinking(text) => {
                     let spinner = crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
-                    Line::from(vec![
+                    lines.push(Line::from(vec![
                         Span::raw(&pad),
                         Span::styled(format!(" {}  ", spinner), Style::default().fg(self.theme.role_thinking)),
                         Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim).add_modifier(Modifier::ITALIC)),
-                    ])
+                    ]));
                 }
-                ChatLine::Spacer => Line::from(pad.as_str()),
+                ChatLine::Spacer => {
+                    lines.push(Line::from(pad.as_str()));
+                }
             }
-        }).collect();
+        }
 
         let chat = Paragraph::new(lines)
             .block(
