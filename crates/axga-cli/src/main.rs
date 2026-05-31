@@ -101,15 +101,37 @@ fn main() -> anyhow::Result<()> {
 
     let rt = runtime::build_runtime()?;
     rt.block_on(async {
-        match cli.command {
-            Some(Commands::Models) => cmd_models().await,
-            Some(Commands::Config) => cmd_config().await,
-            Some(Commands::Doctor) => cmd_doctor().await,
-            None => {
-                if let Some(ref prompt) = cli.prompt {
-                    cmd_single_shot(&prompt, &cli).await
-                } else {
-                    cmd_interactive(&cli).await
+        // ── Telegram Bot Mode ──
+        if cli.telegram {
+            let token = cli.key.as_deref()
+                .ok_or_else(|| anyhow::anyhow!("--key <bot_token> required for --telegram. Get one from @BotFather."))?;
+            let api_key = match cli.provider.as_str() {
+                "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
+                    .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
+                "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
+                _ => None,
+            };
+            telegram::run_telegram_bot(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref()).await
+        }
+        // ── Onboarding wizard ──
+        else if cli.onboard {
+            cmd_onboard(&cli).await
+        }
+        // ── Spawn agent ──
+        else if let Some(ref spawn_prompt) = cli.spawn {
+            cmd_spawn(&cli, spawn_prompt)
+        }
+        else {
+            match cli.command {
+                Some(Commands::Models) => cmd_models().await,
+                Some(Commands::Config) => cmd_config().await,
+                Some(Commands::Doctor) => cmd_doctor().await,
+                None => {
+                    if let Some(ref prompt) = cli.prompt {
+                        cmd_single_shot(prompt, &cli).await
+                    } else {
+                        cmd_interactive(&cli).await
+                    }
                 }
             }
         }
@@ -217,6 +239,83 @@ async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
         cli.max_turns,
     )
     .await
+}
+
+async fn cmd_onboard(cli: &Cli) -> anyhow::Result<()> {
+    println!("╔══════════════════════════════════════════╗");
+    println!("║        AXGA Onboarding Wizard           ║");
+    println!("╠══════════════════════════════════════════╣");
+    println!("║                                          ║");
+    println!("║  Setup options:                          ║");
+    println!("║                                          ║");
+    println!("║  axga --onboard --telegram --key <token> ║");
+    println!("║    → Start Telegram bot with your token  ║");
+    println!("║                                          ║");
+    println!("║  axga --spawn \"your prompt\"             ║");
+    println!("║    → Spawn sub-agent with prompt         ║");
+    println!("║                                          ║");
+    println!("║  Get a Telegram token:                   ║");
+    println!("║    1. Open @BotFather on Telegram        ║");
+    println!("║    2. Send /newbot                       ║");
+    println!("║    3. Copy the token                     ║");
+    println!("║                                          ║");
+    println!("╚══════════════════════════════════════════╝");
+
+    if let Some(ref token) = cli.key {
+        if cli.telegram {
+            println!("\n→ Starting Telegram bot with token: {}...", &token[..8.min(token.len())]);
+        }
+    } else if cli.telegram {
+        println!("\n→ --telegram requires --key <bot_token>");
+    }
+
+    Ok(())
+}
+
+fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
+    let current_exe = std::env::current_exe()?;
+    let provider = cli.provider.clone();
+    let model = cli.model.clone();
+
+    println!("Spawning sub-agent with prompt: {}", prompt);
+    println!("Provider: {}, Model: {}", provider, model);
+
+    // Detect terminal
+    let terminal = if std::env::var("TMUX").is_ok() {
+        "tmux"
+    } else if cfg!(target_os = "macos") {
+        "osascript"
+    } else {
+        "gnome-terminal"
+    };
+
+    match terminal {
+        "tmux" => {
+            let cmd = format!(
+                "tmux split-window -h -c \"$(pwd)\" \"{} --provider {} --model {} --prompt '{}'\"",
+                current_exe.display(), provider, model, prompt
+            );
+            println!("→ Spawning via tmux: {}", cmd);
+            std::process::Command::new("bash").arg("-c").arg(&cmd).spawn()?;
+            Ok(())
+        }
+        "osascript" => {
+            let cmd = format!(
+                "tell application \"Terminal\" to do script \"cd '$(pwd)' && {} --provider {} --model {} --prompt '{}'\"",
+                current_exe.display(), provider, model, prompt
+            );
+            std::process::Command::new("osascript").arg("-e").arg(&cmd).spawn()?;
+            Ok(())
+        }
+        _ => {
+            let cmd = format!(
+                "gnome-terminal -- bash -c \"{} --provider {} --model {} --prompt '{}'; exec \\$SHELL\"",
+                current_exe.display(), provider, model, prompt
+            );
+            std::process::Command::new("bash").arg("-c").arg(&cmd).spawn()?;
+            Ok(())
+        }
+    }
 }
 
 fn rustc_version() -> String {

@@ -109,6 +109,7 @@ dependencies = [
  "crossterm",
  "mimalloc",
  "ratatui",
+ "reqwest",
  "serde_json",
  "tokio",
  "tracing",
