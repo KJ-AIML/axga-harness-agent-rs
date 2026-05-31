@@ -2,6 +2,8 @@
 //!
 //! Falls back to CLI args and env vars if config file is missing.
 
+use crate::io_limits::read_text_file_bounded;
+use axga_shared::limits;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -115,7 +117,7 @@ pub fn load_config() -> Option<Config> {
     ];
 
     for path in &paths {
-        if let Ok(content) = std::fs::read_to_string(path) {
+        if let Ok(content) = read_text_file_bounded(path, limits::MAX_FILE_READ_SIZE) {
             if let Ok(config) = toml::from_str::<Config>(&content) {
                 tracing::info!(path = %path.display(), "config loaded");
                 return Some(config);

@@ -2,6 +2,8 @@
 //!
 //! Format: one JSON object per line, each line is an AgentMessage.
 
+use crate::io_limits::read_text_file_bounded_io;
+use axga_shared::limits;
 use axga_shared::types::AgentMessage;
 use std::path::PathBuf;
 
@@ -21,7 +23,7 @@ pub fn save_session(messages: &[AgentMessage], path: &PathBuf) -> std::io::Resul
 
 /// Load a conversation from a JSONL file.
 pub fn load_session(path: &PathBuf) -> std::io::Result<Vec<AgentMessage>> {
-    let content = std::fs::read_to_string(path)?;
+    let content = read_text_file_bounded_io(path, limits::MAX_FILE_READ_SIZE)?;
     let messages: Vec<AgentMessage> = content
         .lines()
         .filter(|l| !l.trim().is_empty())

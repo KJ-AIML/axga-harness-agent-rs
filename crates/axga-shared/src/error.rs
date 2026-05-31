@@ -14,6 +14,9 @@ pub enum AxgaError {
     #[error("HTTP {status}: {body}")]
     Http { status: u16, body: String },
 
+    #[error("HTTP response too large: {size} bytes (max {limit})")]
+    HttpResponseTooLarge { size: u64, limit: u64 },
+
     #[error("Network error: {0}")]
     Network(String),
 

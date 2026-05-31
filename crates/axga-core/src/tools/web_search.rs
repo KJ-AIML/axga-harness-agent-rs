@@ -3,7 +3,9 @@
 //! Scrapes DuckDuckGo HTML search results.
 
 use super::Tool;
+use crate::io_limits::response_text_bounded;
 use axga_shared::error::{AxgaError, AxgaResult};
+use axga_shared::limits;
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
@@ -50,10 +52,8 @@ impl Tool for WebSearchTool {
                 .get(&url)
                 .send()
                 .await
-                .map_err(|e| AxgaError::Network(e.to_string()))?
-                .text()
-                .await
                 .map_err(|e| AxgaError::Network(e.to_string()))?;
+            let html = response_text_bounded(html, limits::MAX_HTTP_BUFFER_SIZE).await?;
 
             let results = parse_ddg_html(&html, max as usize);
             if results.is_empty() {

@@ -1,7 +1,9 @@
 //! URL fetch tool — read web page content.
 
 use super::Tool;
+use crate::io_limits::response_text_bounded;
 use axga_shared::error::{AxgaError, AxgaResult};
+use axga_shared::limits;
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
@@ -42,14 +44,12 @@ impl Tool for FetchUrlTool {
                 .build()
                 .map_err(|e| AxgaError::Network(e.to_string()))?;
 
-            let html = client
+            let response = client
                 .get(url)
                 .send()
                 .await
-                .map_err(|e| AxgaError::Network(e.to_string()))?
-                .text()
-                .await
                 .map_err(|e| AxgaError::Network(e.to_string()))?;
+            let html = response_text_bounded(response, limits::MAX_HTTP_BUFFER_SIZE).await?;
 
             // Simple HTML-to-text: strip tags
             let mut text = String::new();

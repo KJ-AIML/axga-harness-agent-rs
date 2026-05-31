@@ -1,7 +1,9 @@
 //! Code analysis tools: grep, glob.
 
 use super::Tool;
+use crate::io_limits::read_text_file_bounded;
 use axga_shared::error::{AxgaError, AxgaResult};
+use axga_shared::limits;
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
@@ -46,7 +48,8 @@ impl Tool for GrepTool {
 
             let mut results = Vec::new();
             search_files(search_path, include_filter, &mut |file_path| {
-                if let Ok(content) = std::fs::read_to_string(&file_path) {
+                if let Ok(content) = read_text_file_bounded(&file_path, limits::MAX_FILE_READ_SIZE)
+                {
                     for (i, line) in content.lines().enumerate() {
                         if re.is_match(line) {
                             results.push(format!("{}:{}: {}", file_path, i + 1, line));
@@ -188,8 +191,8 @@ impl Tool for DiffTool {
                     tool: "diff".into(),
                     message: "missing 'path_b'".into(),
                 })?;
-            let a = std::fs::read_to_string(path_a)?;
-            let b = std::fs::read_to_string(path_b)?;
+            let a = read_text_file_bounded(path_a, limits::MAX_FILE_READ_SIZE)?;
+            let b = read_text_file_bounded(path_b, limits::MAX_FILE_READ_SIZE)?;
             let diff = similar::TextDiff::from_lines(&a, &b);
             let result: String = diff
                 .unified_diff()
