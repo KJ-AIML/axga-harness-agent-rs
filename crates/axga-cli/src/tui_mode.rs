@@ -100,10 +100,31 @@ async fn tui_loop(
                         continue;
                     }
 
+                    // Global scroll — works in any mode
+                    match key.code {
+                        KeyCode::Up => { app.scroll_offset = app.scroll_offset.saturating_sub(1); continue; }
+                        KeyCode::Down => { app.scroll_offset = app.scroll_offset.saturating_add(1); continue; }
+                        KeyCode::PageUp => { app.scroll_offset = app.scroll_offset.saturating_sub(10); continue; }
+                        KeyCode::PageDown => { app.scroll_offset = app.scroll_offset.saturating_add(10); continue; }
+                        _ => {}
+                    }
+
                     match app.mode {
                         InputMode::Insert => {
                             match key.code {
                                 KeyCode::Esc => app.mode = InputMode::Normal,
+                                KeyCode::PageUp | KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                    app.scroll_offset = app.scroll_offset.saturating_sub(10);
+                                }
+                                KeyCode::PageDown | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                    app.scroll_offset = app.scroll_offset.saturating_add(10);
+                                }
+                                KeyCode::Up => {
+                                    app.scroll_offset = app.scroll_offset.saturating_sub(1);
+                                }
+                                KeyCode::Down => {
+                                    app.scroll_offset = app.scroll_offset.saturating_add(1);
+                                }
                                 KeyCode::Enter => {
                                     let input = std::mem::take(&mut app.input);
                                     app.cursor_pos = 0;
