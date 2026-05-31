@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 mod runtime;
 mod tui_mode;
+mod telegram;
 
 #[derive(Parser)]
 #[command(name = "axga", version, about = "AI coding agent for 1GB VPS")]
@@ -51,6 +52,26 @@ struct Cli {
     /// Verbose output.
     #[arg(short, long)]
     verbose: bool,
+
+    // ── Telegram Bot ──
+
+    /// Start Telegram bot mode (requires --key).
+    #[arg(long)]
+    telegram: bool,
+
+    /// Telegram bot token from @BotFather.
+    #[arg(long)]
+    key: Option<String>,
+
+    /// Run onboarding wizard.
+    #[arg(long)]
+    onboard: bool,
+
+    // ── Agent Spawning ──
+
+    /// Spawn a new agent with the given prompt.
+    #[arg(long)]
+    spawn: Option<String>,
 }
 
 #[derive(Subcommand)]
