@@ -270,7 +270,9 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(self.theme.border))
-                    .title(Span::styled(" AXGA ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD))),
+                    .title(Span::styled(
+                    format!(" AXGA [{}/{}] ", self.scroll_offset, self.chat_lines.len()),
+                    Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD))),
             )
             .wrap(ratatui::widgets::Wrap { trim: false })
             .scroll((self.scroll_offset, 0));
