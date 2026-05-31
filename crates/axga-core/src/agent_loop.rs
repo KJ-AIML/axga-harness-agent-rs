@@ -146,8 +146,9 @@ pub async fn run_turn(
             },
         });
 
-        // Push tool results
+        // Push tool results — filter out empty tool_call_ids
         for result in results {
+            if result.tool_call_id.is_empty() { continue; }
             conversation.push(AgentMessage::Tool {
                 tool_call_id: result.tool_call_id,
                 content: truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN),
