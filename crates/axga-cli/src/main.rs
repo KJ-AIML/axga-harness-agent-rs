@@ -94,6 +94,7 @@ struct EffectiveConfig {
     system_prompt: Option<String>,
     max_turns: usize,
     telegram_token: Option<String>,
+    telegram_allowed_users: Vec<i64>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -142,15 +143,16 @@ fn main() -> anyhow::Result<()> {
                     "--telegram requires --key <bot_token> or a saved [telegram] token. Run axga --onboard."
                 )
             })?;
-            telegram::run_telegram_bot(
-                &effective.provider,
-                effective.api_key.as_deref(),
-                effective.base_url.as_deref(),
-                &effective.model,
+            telegram::run_telegram_bot(telegram::TelegramBotConfig {
+                provider: &effective.provider,
+                api_key: effective.api_key.as_deref(),
+                base_url: effective.base_url.as_deref(),
+                model: &effective.model,
                 token,
-                effective.system_prompt.as_deref(),
-                effective.max_turns,
-            )
+                allowed_users: &effective.telegram_allowed_users,
+                system_prompt: effective.system_prompt.as_deref(),
+                max_turns: effective.max_turns,
+            })
             .await
         } else if let Some(ref spawn_prompt) = cli.spawn {
             cmd_spawn(&effective, spawn_prompt)
@@ -575,6 +577,11 @@ fn resolve_effective_config(cli: &Cli, saved: &Config) -> anyhow::Result<Effecti
             .key
             .clone()
             .or_else(|| saved.telegram.as_ref().map(|section| section.token.clone())),
+        telegram_allowed_users: saved
+            .telegram
+            .as_ref()
+            .map(|section| section.allowed_users.clone())
+            .unwrap_or_default(),
     })
 }
 
@@ -748,6 +755,7 @@ mod tests {
         assert_eq!(effective.system_prompt.as_deref(), Some("system"));
         assert_eq!(effective.max_turns, 4);
         assert_eq!(effective.telegram_token.as_deref(), Some("bot-token"));
+        assert!(effective.telegram_allowed_users.is_empty());
     }
 
     #[test]
