@@ -10,7 +10,7 @@
 set -e
 
 REPO="KJ-AIML/axga-harness-agent-rs"
-DEFAULT_VERSION="v0.1.0"
+DEFAULT_VERSION="v0.2.0"
 INSTALL_DIR="${AXGA_INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="axga"
 
