@@ -151,7 +151,7 @@ async fn tui_loop(
                                     }
 
                                     app.chat_lines.push(ChatLine::Spacer);
-                                    app.scroll_offset = u16::MAX;
+                                    app.scroll_offset = app.chat_lines.len().saturating_sub(1) as u16;
                                 }
                                 KeyCode::Backspace => {
                                     if app.cursor_pos > 0 {
@@ -193,7 +193,7 @@ async fn tui_loop(
                                     app.cursor_pos = 1;
                                 }
                                 KeyCode::Char('q') => app.exit = true,
-                                KeyCode::Char('G') => app.scroll_offset = u16::MAX,
+                                KeyCode::Char('G') => app.scroll_offset = app.chat_lines.len().saturating_sub(1) as u16,
                                 KeyCode::Up | KeyCode::Char('k') => {
                                     app.scroll_offset = app.scroll_offset.saturating_sub(1);
                                 }
@@ -232,7 +232,7 @@ async fn tui_loop(
                                             }
                                         }
                                         app.chat_lines.push(ChatLine::Spacer);
-                                        app.scroll_offset = u16::MAX;
+                                                app.scroll_offset = app.chat_lines.len().saturating_sub(1) as u16;
                                     }
                                 }
                                 _ => {}
