@@ -6,7 +6,7 @@
 use axga_tui::app::{App, ChatLine, InputMode};
 use axga_tui::theme;
 use axga_core::{Conversation, ToolRegistry, run_turn};
-use axga_core::tools::{fs, shell, code, memctrl};
+use axga_core::tools::{fs, shell, code, memctrl, web_search, fetch_url};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::DefaultTerminal;
 
@@ -27,7 +27,8 @@ pub async fn run_tui(
     registry.register(code::GlobTool)?;
     registry.register(code::DiffTool)?;
     registry.register(memctrl::MemCtrlTool)?;
-
+    registry.register(web_search::WebSearchTool)?;
+    registry.register(fetch_url::FetchUrlTool)?;
     let mut conversation = Conversation::new();
     let mut terminal = ratatui::init();
     let th = theme::dark_theme();

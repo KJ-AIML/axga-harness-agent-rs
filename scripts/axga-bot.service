@@ -1,0 +1,31 @@
+[Unit]
+Description=AXGA AI Coding Agent (Telegram Bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin
+Environment="DEEPSEEK_API_KEY=sk-ebe715ef177448f7906a84fa2eb8901f"
+Environment="AXGA_CONFIG_DIR=/home/admin/.config/axga"
+ExecStart=/usr/local/bin/axga --telegram --key "8965699329:AAGaIJCoWKj8Z_BXR93cqyKLVEx8YnESXHo" --provider deepseek --model deepseek-chat
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=axga
+
+# Memory limits
+MemoryMax=200M
+MemoryHigh=150M
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/admin/.config/axga
+ReadWritePaths=/home/admin/.memctrl
+
+[Install]
+WantedBy=multi-user.target

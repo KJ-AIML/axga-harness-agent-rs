@@ -8,7 +8,7 @@
 //! 3. Each incoming message → runs agent → sends reply
 
 use axga_core::{Conversation, ToolRegistry, run_turn};
-use axga_core::tools::{fs, shell, code, memctrl};
+use axga_core::tools::{fs, shell, code, memctrl, web_search, fetch_url};
 use axga_shared::types::AgentMessage;
 use serde_json::Value;
 use std::time::Duration;
@@ -43,7 +43,8 @@ pub async fn run_telegram_bot(
     registry.register(code::GlobTool)?;
     registry.register(code::DiffTool)?;
     registry.register(memctrl::MemCtrlTool)?;
-
+    registry.register(web_search::WebSearchTool)?;
+    registry.register(fetch_url::FetchUrlTool)?;
     let mut conversation = Conversation::new();
     let mut last_update_id: i64 = 0;
 

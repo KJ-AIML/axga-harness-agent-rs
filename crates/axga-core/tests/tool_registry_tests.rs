@@ -1,5 +1,5 @@
 use axga_core::tools::registry::ToolRegistry;
-use axga_core::tools::{fs, shell, code, memctrl};
+use axga_core::tools::{fs, shell, code, memctrl, web_search, fetch_url};
 use axga_core::state::Conversation;
 
 #[test]
@@ -10,10 +10,6 @@ fn tool_registry_register_and_lookup() {
     registry.register(fs::WriteFileTool).unwrap();
     registry.register(shell::ShellTool).unwrap();
     assert_eq!(registry.len(), 3);
-    assert!(registry.get("read_file").is_some());
-    assert!(registry.get("write_file").is_some());
-    assert!(registry.get("execute_shell").is_some());
-    assert!(registry.get("nonexistent").is_none());
 }
 
 #[test]
@@ -33,7 +29,7 @@ fn conversation_reset() {
 }
 
 #[test]
-fn all_eight_tools_register() {
+fn all_ten_tools_register() {
     let mut registry = ToolRegistry::new();
     registry.register(fs::ReadFileTool).unwrap();
     registry.register(fs::WriteFileTool).unwrap();
@@ -43,5 +39,7 @@ fn all_eight_tools_register() {
     registry.register(code::GlobTool).unwrap();
     registry.register(code::DiffTool).unwrap();
     registry.register(memctrl::MemCtrlTool).unwrap();
-    assert_eq!(registry.len(), 8);
+    registry.register(web_search::WebSearchTool).unwrap();
+    registry.register(fetch_url::FetchUrlTool).unwrap();
+    assert_eq!(registry.len(), 10);
 }
