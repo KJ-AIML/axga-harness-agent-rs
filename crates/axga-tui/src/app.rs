@@ -257,9 +257,6 @@ impl App {
         f.render_widget(chat, area);
     }
 
-        f.render_widget(chat, area);
-    }
-
     fn render_input(&self, f: &mut Frame, area: Rect, _gutter: u16) {
         let _ = _gutter; // available for future padding adjustment
         let _inner_width = area.width.saturating_sub(4); // borders + gutter
