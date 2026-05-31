@@ -102,10 +102,10 @@ async fn tui_loop(
 
                     // Global scroll — works in any mode
                     match key.code {
-                        KeyCode::Up => { app.scroll_offset = app.scroll_offset.saturating_sub(1); continue; }
-                        KeyCode::Down => { app.scroll_offset = app.scroll_offset.saturating_add(1); continue; }
-                        KeyCode::PageUp => { app.scroll_offset = app.scroll_offset.saturating_sub(10); continue; }
-                        KeyCode::PageDown => { app.scroll_offset = app.scroll_offset.saturating_add(10); continue; }
+                        KeyCode::Up => { app.scroll_by(-1); continue; }
+                        KeyCode::Down => { app.scroll_by(1); continue; }
+                        KeyCode::PageUp => { app.scroll_by(-10); continue; }
+                        KeyCode::PageDown => { app.scroll_by(10); continue; }
                         _ => {}
                     }
 
@@ -113,22 +113,51 @@ async fn tui_loop(
                         InputMode::Insert => {
                             match key.code {
                                 KeyCode::Esc => app.mode = InputMode::Normal,
-                                KeyCode::PageUp | KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                    app.scroll_offset = app.scroll_offset.saturating_sub(10);
-                                }
-                                KeyCode::PageDown | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                    app.scroll_offset = app.scroll_offset.saturating_add(10);
-                                }
-                                KeyCode::Up => {
-                                    app.scroll_offset = app.scroll_offset.saturating_sub(1);
-                                }
-                                KeyCode::Down => {
-                                    app.scroll_offset = app.scroll_offset.saturating_add(1);
-                                }
+                                KeyCode::PageUp | KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => { app.scroll_by(-10); }
+                                KeyCode::PageDown | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => { app.scroll_by(10); }
+                                KeyCode::Up => { app.scroll_by(-1); }
+                                KeyCode::Down => { app.scroll_by(1); }
                                 KeyCode::Enter => {
                                     let input = std::mem::take(&mut app.input);
                                     app.cursor_pos = 0;
                                     if input.trim().is_empty() { continue; }
+
+                                    // Check for slash commands
+                                    if input.starts_with('/') {
+                                        let cmd = input.strip_prefix('/').unwrap_or(&input).trim();
+                                        match cmd {
+                                            "quit" | "exit" | "q" => { app.exit = true; break; }
+                                            "clear" => {
+                                                conversation.reset();
+                                                app.chat_lines.clear();
+                                                app.chat_lines.push(ChatLine::Info("Conversation cleared.".into()));
+                                            }
+                                            "tools" => {
+                                                app.chat_lines.push(ChatLine::Info("Available tools:".into()));
+                                                for name in registry.names() {
+                                                    if let Some(tool) = registry.get(name) {
+                                                        app.chat_lines.push(ChatLine::Info(format!(
+                                                            "  {} — {}", tool.name(), tool.description()
+                                                        )));
+                                                    }
+                                                }
+                                            }
+                                            "help" => {
+                                                app.chat_lines.push(ChatLine::Info("Commands: /quit /clear /tools /help /history".into()));
+                                                app.chat_lines.push(ChatLine::Info("Keys: ↑↓ scroll  Esc=normal  i=insert  :q=quit".into()));
+                                            }
+                                            "history" => {
+                                                app.chat_lines.push(ChatLine::Info(format!(
+                                                    "{} messages, {} turns", conversation.len(), conversation.turn_count()
+                                                )));
+                                            }
+                                            _ => {
+                                                app.chat_lines.push(ChatLine::Error(format!("Unknown command: /{}", cmd)));
+                                            }
+                                        }
+                                        app.scroll_to_bottom();
+                                        continue;
+                                    }
 
                                     // Push user message
                                     app.chat_lines.push(ChatLine::User(input.clone()));
@@ -172,7 +201,7 @@ async fn tui_loop(
                                     }
 
                                     app.chat_lines.push(ChatLine::Spacer);
-                                    app.scroll_offset = app.chat_lines.len().saturating_sub(1) as u16;
+                                    app.scroll_to_bottom();
                                 }
                                 KeyCode::Backspace => {
                                     if app.cursor_pos > 0 {
@@ -214,13 +243,9 @@ async fn tui_loop(
                                     app.cursor_pos = 1;
                                 }
                                 KeyCode::Char('q') => app.exit = true,
-                                KeyCode::Char('G') => app.scroll_offset = app.chat_lines.len().saturating_sub(1) as u16,
-                                KeyCode::Up | KeyCode::Char('k') => {
-                                    app.scroll_offset = app.scroll_offset.saturating_sub(1);
-                                }
-                                KeyCode::Down | KeyCode::Char('j') => {
-                                    app.scroll_offset = app.scroll_offset.saturating_add(1);
-                                }
+                                KeyCode::Char('G') => app.scroll_to_bottom(),
+                                KeyCode::Up | KeyCode::Char('k') => app.scroll_by(-1),
+                                KeyCode::Down | KeyCode::Char('j') => app.scroll_by(1),
                                 KeyCode::Enter => {
                                     // Submit from normal mode
                                     let input = std::mem::take(&mut app.input);
@@ -253,7 +278,7 @@ async fn tui_loop(
                                             }
                                         }
                                         app.chat_lines.push(ChatLine::Spacer);
-                                                app.scroll_offset = app.chat_lines.len().saturating_sub(1) as u16;
+                                                app.scroll_to_bottom();
                                     }
                                 }
                                 _ => {}
