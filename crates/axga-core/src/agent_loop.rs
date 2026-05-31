@@ -129,24 +129,34 @@ pub async fn run_turn(
             break;
         }
 
-        // Execute tool calls
-        let results = execute_tool_calls(tools, &tool_calls).await?;
+        // Execute tool calls — filter empty IDs
+        let valid_tool_calls: Vec<ToolCall> = tool_calls
+            .into_iter()
+            .filter(|tc| !tc.id.is_empty() && !tc.name.is_empty())
+            .collect();
 
-        // Record tool calls
-        for tc in &tool_calls {
+        if valid_tool_calls.is_empty() {
+            // No valid tool calls — treat as text-only response
+            conversation.push(AgentMessage::Assistant {
+                content: AssistantContent { text: Some(text), tool_calls: None, thinking: None },
+            });
+            break;
+        }
+
+        let results = execute_tool_calls(tools, &valid_tool_calls).await?;
+
+        for tc in &valid_tool_calls {
             tool_calls_made.push(tc.name.clone());
         }
 
-        // Push assistant message with tool calls
         conversation.push(AgentMessage::Assistant {
             content: AssistantContent {
                 text: Some(text),
-                tool_calls: Some(tool_calls.clone()),
+                tool_calls: Some(valid_tool_calls.clone()),
                 thinking: None,
             },
         });
 
-        // Push tool results — filter out empty tool_call_ids
         for result in results {
             if result.tool_call_id.is_empty() { continue; }
             conversation.push(AgentMessage::Tool {
