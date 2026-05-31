@@ -106,6 +106,8 @@ dependencies = [
  "axga-shared",
  "axga-tui",
  "clap",
+ "crossterm",
+ "ratatui",
  "serde_json",
  "tokio",
  "tracing",

@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod runtime;
+mod tui_mode;
 
 #[derive(Parser)]
 #[command(name = "axga", version, about = "AI coding agent for 1GB VPS")]
@@ -174,18 +175,6 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
 }
 
 async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
-    use axga_core::{Conversation, ToolRegistry, run_turn};
-    use axga_core::tools::{fs, shell, code};
-
-    let mut registry = ToolRegistry::new();
-    registry.register(fs::ReadFileTool)?;
-    registry.register(fs::WriteFileTool)?;
-    registry.register(fs::ListDirectoryTool)?;
-    registry.register(shell::ShellTool)?;
-    registry.register(code::GrepTool)?;
-    registry.register(code::GlobTool)?;
-    registry.register(code::DiffTool)?;
-
     let api_key = match cli.provider.as_str() {
         "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
             .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
@@ -193,73 +182,15 @@ async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
         _ => None,
     };
 
-    let mut conversation = Conversation::new();
-
-    println!("AXGA Interactive — {} / {}", cli.provider, cli.model);
-    println!("7 tools loaded. Type /help for commands, /quit to exit.\n");
-
-    let mut input = String::new();
-    loop {
-        print!("> ");
-        use std::io::Write;
-        std::io::stdout().flush()?;
-
-        input.clear();
-        if std::io::stdin().read_line(&mut input).is_err() { break; }
-        let trimmed = input.trim();
-
-        if trimmed.is_empty() { continue; }
-        if trimmed == "/quit" || trimmed == "/exit" { break; }
-        if trimmed == "/help" {
-            println!("Commands: /quit, /help, /clear, /history, /tools");
-            continue;
-        }
-        if trimmed == "/clear" {
-            conversation.reset();
-            println!("Conversation cleared.");
-            continue;
-        }
-        if trimmed == "/history" {
-            println!("{} messages ({} turns)", conversation.len(), conversation.turn_count());
-            continue;
-        }
-        if trimmed == "/tools" {
-            for name in registry.names() {
-                if let Some(tool) = registry.get(name) {
-                    println!("  {} — {}", tool.name(), tool.description());
-                }
-            }
-            continue;
-        }
-
-        match run_turn(
-            &cli.provider,
-            api_key.as_deref(),
-            cli.base_url.as_deref(),
-            &cli.model,
-            &mut conversation,
-            trimmed,
-            &registry,
-            cli.system_prompt.as_deref(),
-            cli.max_turns,
-        )
-        .await
-        {
-            Ok(turn) => {
-                println!("{}\n", turn.final_text);
-                if !turn.tool_calls_made.is_empty() {
-                    eprintln!("  [tools: {} | {} tokens]",
-                        turn.tool_calls_made.join(", "),
-                        turn.total_tokens);
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}\n", e);
-            }
-        }
-    }
-
-    Ok(())
+    tui_mode::run_tui(
+        &cli.provider,
+        api_key.as_deref(),
+        cli.base_url.as_deref(),
+        &cli.model,
+        cli.system_prompt.as_deref(),
+        cli.max_turns,
+    )
+    .await
 }
 
 fn rustc_version() -> String {
