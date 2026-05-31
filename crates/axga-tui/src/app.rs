@@ -266,12 +266,15 @@ impl App {
             })
             .collect();
 
-        let chat = Paragraph::new(padded_lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(self.theme.border))
-                .title(Span::styled(" AXGA ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD))),
-        );
+        let chat = Paragraph::new(padded_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(self.theme.border))
+                    .title(Span::styled(" AXGA ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD))),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .scroll((self.scroll_offset, 0));
 
         f.render_widget(chat, area);
     }
