@@ -229,19 +229,23 @@ where
         }
     }
 
-    // Finalize last tool call
+    // Finalize last tool call — validate before using
     if let Some(tc) = current_tc.take() {
-        // Try to parse accumulated args as JSON
-        if let serde_json::Value::String(ref args_str) = tc.arguments {
-            let parsed: serde_json::Value = serde_json::from_str(args_str).unwrap_or(tc.arguments.clone());
-            tool_calls.push(ToolCall {
-                id: tc.id,
-                name: tc.name,
-                arguments: parsed,
-            });
-        } else {
-            tool_calls.push(tc);
+        if !tc.id.is_empty() && !tc.name.is_empty() {
+            if let serde_json::Value::String(ref args_str) = tc.arguments {
+                let parsed: serde_json::Value = serde_json::from_str(args_str).unwrap_or(tc.arguments.clone());
+                tool_calls.push(ToolCall { id: tc.id, name: tc.name, arguments: parsed });
+            } else {
+                tool_calls.push(tc);
+            }
         }
+    }
+
+    // Filter: only keep tool calls with valid ids and names
+    let valid_count = tool_calls.iter().filter(|tc| !tc.id.is_empty() && !tc.name.is_empty()).count();
+    if valid_count < tool_calls.len() {
+        tracing::warn!(total = tool_calls.len(), valid = valid_count, "some tool calls had empty ids, filtering");
+        tool_calls.retain(|tc| !tc.id.is_empty() && !tc.name.is_empty());
     }
 
     Ok((text, tool_calls, tokens))
