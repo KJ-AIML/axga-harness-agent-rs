@@ -111,9 +111,13 @@ fn main() -> anyhow::Result<()> {
                 "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
                 _ => None,
             };
+            if cli.onboard {
+                cmd_onboard(&cli).await?;
+                println!();
+            }
             telegram::run_telegram_bot(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref()).await
         }
-        // ── Onboarding wizard ──
+        // ── Onboarding wizard (without telegram) ──
         else if cli.onboard {
             cmd_onboard(&cli).await
         }
