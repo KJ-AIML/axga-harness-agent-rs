@@ -1,5 +1,5 @@
 use axga_core::tools::registry::ToolRegistry;
-use axga_core::tools::{fs, shell, code};
+use axga_core::tools::{fs, shell, code, memctrl};
 use axga_core::state::Conversation;
 
 #[test]
@@ -33,7 +33,7 @@ fn conversation_reset() {
 }
 
 #[test]
-fn all_seven_tools_register() {
+fn all_eight_tools_register() {
     let mut registry = ToolRegistry::new();
     registry.register(fs::ReadFileTool).unwrap();
     registry.register(fs::WriteFileTool).unwrap();
@@ -42,5 +42,6 @@ fn all_seven_tools_register() {
     registry.register(code::GrepTool).unwrap();
     registry.register(code::GlobTool).unwrap();
     registry.register(code::DiffTool).unwrap();
-    assert_eq!(registry.len(), 7);
+    registry.register(memctrl::MemCtrlTool).unwrap();
+    assert_eq!(registry.len(), 8);
 }

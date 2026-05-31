@@ -124,7 +124,7 @@ async fn cmd_doctor() -> anyhow::Result<()> {
 
 async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
     use axga_core::{Conversation, ToolRegistry, run_turn};
-    use axga_core::tools::{fs, shell, code};
+    use axga_core::tools::{fs, shell, code, memctrl};
 
     // Build tool registry
     let mut registry = ToolRegistry::new();
@@ -135,6 +135,7 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
     registry.register(code::GrepTool)?;
     registry.register(code::GlobTool)?;
     registry.register(code::DiffTool)?;
+    registry.register(memctrl::MemCtrlTool)?;
 
     let api_key = match cli.provider.as_str() {
         "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()

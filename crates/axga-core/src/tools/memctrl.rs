@@ -130,8 +130,8 @@ impl Tool for MemCtrlTool {
                     Ok(stdout)
                 }
             } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 // memctrl sometimes outputs to stderr for info
                 if !stdout.trim().is_empty() {
                     Ok(stdout)

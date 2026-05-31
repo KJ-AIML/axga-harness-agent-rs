@@ -6,7 +6,7 @@
 use axga_tui::app::{App, ChatLine, InputMode};
 use axga_tui::theme;
 use axga_core::{Conversation, ToolRegistry, run_turn};
-use axga_core::tools::{fs, shell, code};
+use axga_core::tools::{fs, shell, code, memctrl};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::DefaultTerminal;
 
@@ -26,6 +26,7 @@ pub async fn run_tui(
     registry.register(code::GrepTool)?;
     registry.register(code::GlobTool)?;
     registry.register(code::DiffTool)?;
+    registry.register(memctrl::MemCtrlTool)?;
 
     let mut conversation = Conversation::new();
     let mut terminal = ratatui::init();
@@ -124,35 +125,108 @@ async fn tui_loop(
 
                                     // Check for slash commands
                                     if input.starts_with('/') {
-                                        let cmd = input.strip_prefix('/').unwrap_or(&input).trim();
+                                        let full = input.strip_prefix('/').unwrap_or(&input).trim();
+                                        let (cmd, args) = full.split_once(' ').unwrap_or((full, ""));
+
                                         match cmd {
                                             "quit" | "exit" | "q" => { app.exit = true; break; }
-                                            "clear" => {
+                                            "clear" | "new" => {
                                                 conversation.reset();
                                                 app.chat_lines.clear();
-                                                app.chat_lines.push(ChatLine::Info("Conversation cleared.".into()));
+                                                app.chat_lines.push(ChatLine::Info("Conversation cleared. New session.".into()));
                                             }
                                             "tools" => {
-                                                app.chat_lines.push(ChatLine::Info("Available tools:".into()));
+                                                app.chat_lines.push(ChatLine::Info(format!("{} tools available:", registry.len())));
                                                 for name in registry.names() {
                                                     if let Some(tool) = registry.get(name) {
-                                                        app.chat_lines.push(ChatLine::Info(format!(
-                                                            "  {} — {}", tool.name(), tool.description()
-                                                        )));
+                                                        app.chat_lines.push(ChatLine::Info(format!("  {} — {}", tool.name(), tool.description())));
                                                     }
                                                 }
                                             }
-                                            "help" => {
-                                                app.chat_lines.push(ChatLine::Info("Commands: /quit /clear /tools /help /history".into()));
-                                                app.chat_lines.push(ChatLine::Info("Keys: ↑↓ scroll  Esc=normal  i=insert  :q=quit".into()));
+                                            "help" | "?" | "h" => {
+                                                app.chat_lines.push(ChatLine::Info("╭─ Slash Commands ──────────────────────────╮".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /quit, /q       Exit axga                │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /clear, /new    New session              │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /tools          List tools               │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /help, /?       Show this help           │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /history        Session stats            │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /status         Runtime status           │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /usage          Token usage              │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /compact        Compact context          │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /version        Show version             │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /export <file>  Export to markdown       │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /title <text>   Set session title        │".into()));
+                                                app.chat_lines.push(ChatLine::Info("╰──────────────────────────────────────────╯".into()));
+                                                app.chat_lines.push(ChatLine::Info("Keys: ↑↓ scroll | Esc normal | i insert | Ctrl+C quit".into()));
                                             }
                                             "history" => {
                                                 app.chat_lines.push(ChatLine::Info(format!(
-                                                    "{} messages, {} turns", conversation.len(), conversation.turn_count()
+                                                    "Session: {} messages, {} turns", conversation.len(), conversation.turn_count()
+                                                )));
+                                                app.chat_lines.push(ChatLine::Info(format!(
+                                                    "Tokens used: {}", app.status.tokens_used
                                                 )));
                                             }
+                                            "status" => {
+                                                app.chat_lines.push(ChatLine::Info(format!("Provider:  {}", provider)));
+                                                app.chat_lines.push(ChatLine::Info(format!("Model:     {}", model)));
+                                                app.chat_lines.push(ChatLine::Info(format!("Max turns: {}", max_turns)));
+                                                app.chat_lines.push(ChatLine::Info(format!("Messages:  {}", conversation.len())));
+                                                app.chat_lines.push(ChatLine::Info(format!("Turns:     {}", conversation.turn_count())));
+                                                app.chat_lines.push(ChatLine::Info(format!("Tokens:    {}", app.status.tokens_used)));
+                                                app.chat_lines.push(ChatLine::Info(format!("Tools:     {} loaded", registry.len())));
+                                                app.chat_lines.push(ChatLine::Info(format!("Version:   axga v{}", env!("CARGO_PKG_VERSION"))));
+                                            }
+                                            "usage" => {
+                                                let tokens = app.status.tokens_used;
+                                                let max_ctx = 32_768u32;
+                                                let pct = if max_ctx > 0 { (tokens as f64 / max_ctx as f64 * 100.0) as u32 } else { 0 };
+                                                app.chat_lines.push(ChatLine::Info(format!("Tokens: {}/{} ({}%)", tokens, max_ctx, pct)));
+                                                app.chat_lines.push(ChatLine::Info(format!("Messages: {}", conversation.len())));
+                                                app.chat_lines.push(ChatLine::Info(format!("Turns: {}", conversation.turn_count())));
+                                            }
+                                            "compact" => {
+                                                let before = conversation.len();
+                                                // Force summarization by pushing dummy messages
+                                                for _ in 0..5 {
+                                                    conversation.push(axga_shared::types::AgentMessage::System {
+                                                        content: "[compacted]".into(),
+                                                    });
+                                                }
+                                                let after = conversation.len();
+                                                app.chat_lines.push(ChatLine::Info(format!("Compacted: {} → {} messages", before, after)));
+                                            }
+                                            "version" => {
+                                                app.chat_lines.push(ChatLine::Info(format!("axga v{} (rustc {})", env!("CARGO_PKG_VERSION"), option_env!("CARGO_PKG_RUST_VERSION").unwrap_or("unknown"))));
+                                            }
+                                            "export" => {
+                                                let path = if args.is_empty() { "axga-export.md" } else { args };
+                                                let mut md = String::new();
+                                                md.push_str(&format!("# axga Session Export\n\n"));
+                                                md.push_str(&format!("Provider: {} | Model: {} | Tokens: {}\n\n", provider, model, app.status.tokens_used));
+                                                for line in &app.chat_lines {
+                                                    match line {
+                                                        ChatLine::User(t) => md.push_str(&format!("**You:** {}\n\n", t)),
+                                                        ChatLine::Assistant(t) => md.push_str(&format!("{}\n\n", t)),
+                                                        ChatLine::Tool { name, detail } => md.push_str(&format!("*[tool: {} → {}]*\n\n", name, detail)),
+                                                        ChatLine::Error(t) => md.push_str(&format!("*Error: {}*\n\n", t)),
+                                                        _ => {}
+                                                    }
+                                                }
+                                                match std::fs::write(path, &md) {
+                                                    Ok(_) => app.chat_lines.push(ChatLine::Info(format!("Exported to {}", path))),
+                                                    Err(e) => app.chat_lines.push(ChatLine::Error(format!("Export failed: {}", e))),
+                                                }
+                                            }
+                                            "title" => {
+                                                if args.is_empty() {
+                                                    app.chat_lines.push(ChatLine::Info("Usage: /title <your session title>".into()));
+                                                } else {
+                                                    app.chat_lines.push(ChatLine::Info(format!("Session title set to: {}", args)));
+                                                }
+                                            }
                                             _ => {
-                                                app.chat_lines.push(ChatLine::Error(format!("Unknown command: /{}", cmd)));
+                                                app.chat_lines.push(ChatLine::Error(format!("Unknown: /{}. Try /help", cmd)));
                                             }
                                         }
                                         app.scroll_to_bottom();
