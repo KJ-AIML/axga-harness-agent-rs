@@ -13,6 +13,7 @@
 
 use crate::ToolRegistry;
 use crate::executor::execute_tool_calls;
+use crate::provider_registry::{ProviderKind, resolve_provider};
 use crate::state::Conversation;
 use axga_ai::request::RequestBuilder;
 use axga_shared::error::{AxgaError, AxgaResult};
@@ -80,36 +81,22 @@ pub async fn run_turn(
             request
         };
 
-        let stream = match provider_type {
-            "openai" => {
+        let resolved_provider = resolve_provider(provider_type, api_key, base_url)?;
+        let stream = match resolved_provider.spec.kind {
+            ProviderKind::OpenAiCompatible => {
                 let provider = axga_ai::providers::openai::OpenAiProvider::new(
-                    api_key.map(|s| s.to_string()),
-                    base_url.map(|s| s.to_string()),
+                    resolved_provider.api_key,
+                    resolved_provider.base_url,
                 )?;
                 provider.stream_chat(&request).await?
             }
-            "deepseek" => {
-                let key = api_key
-                    .map(|s| s.to_string())
-                    .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok());
-                let url = base_url
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
-                let provider = axga_ai::providers::openai::OpenAiProvider::new(key, Some(url))?;
-                provider.stream_chat(&request).await?
-            }
-            "anthropic" => {
+            ProviderKind::Anthropic => {
                 let provider = axga_ai::providers::anthropic::AnthropicProvider::new(
-                    api_key.map(|s| s.to_string()),
+                    resolved_provider.api_key,
                 )?;
                 provider
                     .stream_chat(model, &messages, system_prompt, &tool_defs, 4096)
                     .await?
-            }
-            _ => {
-                return Err(AxgaError::Config(format!(
-                    "unknown provider: {provider_type}"
-                )));
             }
         };
 

@@ -11,15 +11,12 @@ use std::pin::Pin;
 #[derive(Clone)]
 pub struct OpenAiProvider {
     client: Client,
-    api_key: String,
+    api_key: Option<String>,
     base_url: String,
 }
 
 impl OpenAiProvider {
     pub fn new(api_key: Option<String>, base_url: Option<String>) -> AxgaResult<Self> {
-        let api_key = api_key
-            .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-            .ok_or_else(|| AxgaError::Config("OPENAI_API_KEY not set".into()))?;
         let base_url = base_url
             .or_else(|| std::env::var("OPENAI_BASE_URL").ok())
             .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
@@ -42,12 +39,17 @@ impl OpenAiProvider {
         let body = request.build_openai_body();
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
-        let response = self
+        let mut request = self
             .client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&body)
+            .json(&body);
+
+        if let Some(api_key) = &self.api_key {
+            request = request.header("Authorization", format!("Bearer {api_key}"));
+        }
+
+        let response = request
             .send()
             .await
             .map_err(|e| AxgaError::Network(e.to_string()))?;
@@ -77,8 +79,8 @@ impl OpenAiProvider {
 mod tests {
     use super::*;
     #[test]
-    fn provider_requires_api_key() {
+    fn provider_allows_missing_api_key_for_local_compatible_servers() {
         unsafe { std::env::remove_var("OPENAI_API_KEY") };
-        assert!(OpenAiProvider::new(None, None).is_err());
+        assert!(OpenAiProvider::new(None, Some("http://localhost:11434/v1".into())).is_ok());
     }
 }

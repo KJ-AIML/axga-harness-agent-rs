@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/binary-4.7MB-blue.svg" alt="Binary 4.7MB">
   <img src="https://img.shields.io/badge/license-MIT-purple.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/tools-10-cyan.svg" alt="10 Tools">
-  <img src="https://img.shields.io/badge/providers-DeepSeek%20%7C%20OpenAI%20%7C%20Anthropic-red.svg" alt="Providers">
+  <img src="https://img.shields.io/badge/providers-6%20providers-red.svg" alt="Providers">
 </p>
 
 <h1 align="center">⚡ AXGA</h1>
@@ -23,7 +23,7 @@
 
 ## What is AXGA?
 
-AXGA is a **production-grade AI coding agent** written in Rust. It runs in your terminal as a TUI, as a single-shot CLI, or as a Telegram bot. It uses your LLM provider (DeepSeek, OpenAI, Anthropic) and gives the model access to real tools — filesystem, shell, web search, memory.
+AXGA is a **production-grade AI coding agent** written in Rust. It runs in your terminal as a TUI, as a single-shot CLI, or as a Telegram bot. It supports OpenAI, DeepSeek, Anthropic, OpenRouter, Groq, and Ollama/local providers, and gives the model access to real tools: filesystem, shell, web search, and memory.
 
 > **4.7 MB binary. 18 MB RAM. Zero glibc dependency. Fits on a 1GB VPS with room to spare.**
 
@@ -79,11 +79,17 @@ curl -fsSL https://raw.githubusercontent.com/KJ-AIML/axga-harness-agent-rs/maste
 # Set your API key
 export DEEPSEEK_API_KEY="sk-..."
 
-# Launch TUI
-axga --provider deepseek --model deepseek-chat
+# List provider defaults
+axga models
+
+# Launch TUI (model defaults to the provider recommendation)
+axga --provider deepseek
 
 # Single-shot
-axga --provider deepseek --model deepseek-chat --prompt "explain Rust ownership"
+axga --provider deepseek --prompt "explain Rust ownership"
+
+# Local OpenAI-compatible provider
+axga --provider ollama --prompt "explain Rust ownership"
 
 # Telegram bot
 axga --telegram --key "YOUR_BOT_TOKEN" --provider deepseek --model deepseek-chat
@@ -102,7 +108,7 @@ axga --spawn "write unit tests for all modules"
 | 🤖 **Telegram Bot** | Long-polling bot with full tool access, typing indicators, markdown |
 | 🧠 **MemCtrl Memory** | Persistent project memory — store facts, query with provenance |
 | 🔧 **10 Built-in Tools** | Filesystem, shell, grep, glob, diff, web search, URL fetch, memory |
-| 🚀 **3 Providers** | DeepSeek, OpenAI, Anthropic — swap with `--provider` |
+| 🚀 **6 Providers** | OpenAI, DeepSeek, Anthropic, OpenRouter, Groq, Ollama/local; swap with `--provider` |
 | 💾 **Session Persistence** | JSONL save/load, resume conversations |
 | ⚡ **Retry & Backoff** | Exponential backoff on 429/5xx, graceful degradation |
 | 📦 **4.7 MB Binary** | Musl static build, no glibc, no runtime deps |
@@ -143,7 +149,7 @@ axga --spawn "write unit tests for all modules"
 
 ```
 axga-shared (types, errors, memory limits)
-  ├── axga-ai (LLM providers: OpenAI, Anthropic, DeepSeek — SSE streaming)
+  ├── axga-ai (LLM providers: OpenAI-compatible and native Anthropic SSE streaming)
   │     └── axga-core (agent loop, tool registry, conversation state)
   │           └── axga-cli (binary entry: TUI, Telegram, single-shot, spawn)
   └── axga-tui (ratatui app: theme, markdown, scrollbar, events)

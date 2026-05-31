@@ -1,4 +1,4 @@
-//! `axga` — AI Coding Agent CLI.
+//! `axga` - AI Coding Agent CLI.
 //!
 //! # Memory
 //! Custom tokio runtime: 2 worker threads (ADR-004).
@@ -25,11 +25,11 @@ struct Cli {
     #[arg(short, long)]
     prompt: Option<String>,
 
-    /// Model to use.
-    #[arg(short, long, default_value = "gpt-4o-mini")]
-    model: String,
+    /// Model to use. Defaults to the provider's recommended model.
+    #[arg(short, long)]
+    model: Option<String>,
 
-    /// Provider: openai, anthropic.
+    /// Provider name. Run `axga models` for supported providers.
     #[arg(short = 'P', long, default_value = "openai")]
     provider: String,
 
@@ -53,7 +53,7 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
-    // ── Telegram Bot ──
+    // Telegram Bot
     /// Start Telegram bot mode (requires --key).
     #[arg(long)]
     telegram: bool,
@@ -66,7 +66,7 @@ struct Cli {
     #[arg(long)]
     onboard: bool,
 
-    // ── Agent Spawning ──
+    // Agent Spawning
     /// Spawn a new agent with the given prompt.
     #[arg(long)]
     spawn: Option<String>,
@@ -103,39 +103,28 @@ fn main() -> anyhow::Result<()> {
 
     let rt = runtime::build_runtime()?;
     rt.block_on(async {
-        // ── Telegram Bot Mode ──
         if cli.telegram {
             let token = cli.key.as_deref().ok_or_else(|| {
                 anyhow::anyhow!(
                     "--key <bot_token> required for --telegram. Get one from @BotFather."
                 )
             })?;
-            let api_key = match cli.provider.as_str() {
-                "openai" | "deepseek" => std::env::var("OPENAI_API_KEY")
-                    .ok()
-                    .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
-                "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
-                _ => None,
-            };
+            let model = resolve_cli_model(&cli)?;
             if cli.onboard {
                 cmd_onboard(&cli).await?;
                 println!();
             }
             telegram::run_telegram_bot(
                 &cli.provider,
-                api_key.as_deref(),
-                &cli.model,
+                None,
+                &model,
                 token,
                 cli.system_prompt.as_deref(),
             )
             .await
-        }
-        // ── Onboarding wizard (without telegram) ──
-        else if cli.onboard {
+        } else if cli.onboard {
             cmd_onboard(&cli).await
-        }
-        // ── Spawn agent ──
-        else if let Some(ref spawn_prompt) = cli.spawn {
+        } else if let Some(ref spawn_prompt) = cli.spawn {
             cmd_spawn(&cli, spawn_prompt)
         } else {
             match cli.command {
@@ -156,9 +145,14 @@ fn main() -> anyhow::Result<()> {
 
 async fn cmd_models() -> anyhow::Result<()> {
     println!("Supported providers:");
-    println!("  openai      — gpt-4o, gpt-4o-mini, gpt-4.1, o3-mini");
-    println!("  deepseek    — deepseek-chat, deepseek-reasoner");
-    println!("  anthropic   — claude-sonnet-4-20250514, claude-haiku-3-5");
+    for provider in axga_core::provider_specs() {
+        println!(
+            "  {:<10} default: {:<28} models: {}",
+            provider.name,
+            provider.default_model,
+            provider.models.join(", ")
+        );
+    }
     println!();
     println!("Set provider:  axga --provider <name>");
     println!("Set model:     axga --model <model-id>");
@@ -168,12 +162,20 @@ async fn cmd_models() -> anyhow::Result<()> {
 async fn cmd_config() -> anyhow::Result<()> {
     println!("axga configuration:");
     println!("  Config dir:  ~/.config/axga/");
-    println!("  Env vars:    OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENAI_BASE_URL");
+    println!("  Providers:");
+    for provider in axga_core::provider_specs() {
+        println!(
+            "    {:<10} key: {:<20} base: {}",
+            provider.name,
+            provider.api_key_env.unwrap_or("(none)"),
+            provider.default_base_url.unwrap_or("(native)")
+        );
+    }
     Ok(())
 }
 
 async fn cmd_doctor() -> anyhow::Result<()> {
-    println!("axga doctor — diagnostics:");
+    println!("axga doctor - diagnostics:");
     println!("  Rust:        {}", rustc_version());
     println!(
         "  CWD:         {}",
@@ -202,7 +204,6 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
     use axga_core::tools::{code, fetch_url, fs, memctrl, shell, web_search};
     use axga_core::{Conversation, ToolRegistry, run_turn};
 
-    // Build tool registry
     let mut registry = ToolRegistry::new();
     registry.register(fs::ReadFileTool)?;
     registry.register(fs::WriteFileTool)?;
@@ -214,23 +215,17 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
     registry.register(memctrl::MemCtrlTool)?;
     registry.register(web_search::WebSearchTool)?;
     registry.register(fetch_url::FetchUrlTool)?;
-    let api_key = match cli.provider.as_str() {
-        "openai" | "deepseek" => std::env::var("OPENAI_API_KEY")
-            .ok()
-            .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
-        "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
-        _ => None,
-    };
 
+    let model = resolve_cli_model(cli)?;
     let mut conversation = Conversation::new();
 
-    tracing::info!(provider = %cli.provider, model = %cli.model, "single-shot");
+    tracing::info!(provider = %cli.provider, model = %model, "single-shot");
 
     let result = run_turn(
         &cli.provider,
-        api_key.as_deref(),
+        None,
         cli.base_url.as_deref(),
-        &cli.model,
+        &model,
         &mut conversation,
         prompt,
         &registry,
@@ -260,19 +255,13 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
 }
 
 async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
-    let api_key = match cli.provider.as_str() {
-        "openai" | "deepseek" => std::env::var("OPENAI_API_KEY")
-            .ok()
-            .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
-        "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
-        _ => None,
-    };
+    let model = resolve_cli_model(cli)?;
 
     tui_mode::run_tui(
         &cli.provider,
-        api_key.as_deref(),
+        None,
         cli.base_url.as_deref(),
-        &cli.model,
+        &model,
         cli.system_prompt.as_deref(),
         cli.max_turns,
     )
@@ -280,34 +269,28 @@ async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
 }
 
 async fn cmd_onboard(cli: &Cli) -> anyhow::Result<()> {
-    println!("╔══════════════════════════════════════════╗");
-    println!("║        AXGA Onboarding Wizard           ║");
-    println!("╠══════════════════════════════════════════╣");
-    println!("║                                          ║");
-    println!("║  Setup options:                          ║");
-    println!("║                                          ║");
-    println!("║  axga --onboard --telegram --key <token> ║");
-    println!("║    → Start Telegram bot with your token  ║");
-    println!("║                                          ║");
-    println!("║  axga --spawn \"your prompt\"             ║");
-    println!("║    → Spawn sub-agent with prompt         ║");
-    println!("║                                          ║");
-    println!("║  Get a Telegram token:                   ║");
-    println!("║    1. Open @BotFather on Telegram        ║");
-    println!("║    2. Send /newbot                       ║");
-    println!("║    3. Copy the token                     ║");
-    println!("║                                          ║");
-    println!("╚══════════════════════════════════════════╝");
+    println!("AXGA Onboarding Wizard");
+    println!();
+    println!("Setup options:");
+    println!("  axga --onboard --telegram --key <token>");
+    println!("    Start Telegram bot with your token");
+    println!("  axga --spawn \"your prompt\"");
+    println!("    Spawn sub-agent with prompt");
+    println!();
+    println!("Get a Telegram token:");
+    println!("  1. Open @BotFather on Telegram");
+    println!("  2. Send /newbot");
+    println!("  3. Copy the token");
 
     if let Some(ref token) = cli.key {
         if cli.telegram {
             println!(
-                "\n→ Starting Telegram bot with token: {}...",
+                "\nStarting Telegram bot with token: {}...",
                 &token[..8.min(token.len())]
             );
         }
     } else if cli.telegram {
-        println!("\n→ --telegram requires --key <bot_token>");
+        println!("\n--telegram requires --key <bot_token>");
     }
 
     Ok(())
@@ -316,12 +299,11 @@ async fn cmd_onboard(cli: &Cli) -> anyhow::Result<()> {
 fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
     let current_exe = std::env::current_exe()?;
     let provider = cli.provider.clone();
-    let model = cli.model.clone();
+    let model = resolve_cli_model(cli)?;
 
     println!("Spawning sub-agent with prompt: {prompt}");
     println!("Provider: {provider}, Model: {model}");
 
-    // Detect terminal
     let terminal = if std::env::var("TMUX").is_ok() {
         "tmux"
     } else if cfg!(target_os = "macos") {
@@ -339,7 +321,7 @@ fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
                 model,
                 prompt
             );
-            println!("→ Spawning via tmux: {cmd}");
+            println!("Spawning via tmux: {cmd}");
             std::process::Command::new("bash")
                 .arg("-c")
                 .arg(&cmd)
@@ -374,6 +356,13 @@ fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
                 .spawn()?;
             Ok(())
         }
+    }
+}
+
+fn resolve_cli_model(cli: &Cli) -> anyhow::Result<String> {
+    match &cli.model {
+        Some(model) => Ok(model.clone()),
+        None => Ok(axga_core::default_model_for_provider(&cli.provider)?.to_string()),
     }
 }
 
