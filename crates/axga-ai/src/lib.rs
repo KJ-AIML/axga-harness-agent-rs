@@ -6,5 +6,5 @@
 //! - Uses `axga-shared` for common types and error definitions.
 
 pub mod providers;
-pub mod stream;
 pub mod request;
+pub mod stream;

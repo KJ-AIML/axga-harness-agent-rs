@@ -1,5 +1,5 @@
 use axga_shared::limits;
-use axga_shared::types::{TokenBudget, AgentMessage};
+use axga_shared::types::{AgentMessage, TokenBudget};
 
 #[test]
 fn token_budget_enforces_limit() {
@@ -25,7 +25,9 @@ fn limits_are_reasonable() {
 
 #[test]
 fn message_serialization_roundtrip() {
-    let msg = AgentMessage::User { content: "hello world".into() };
+    let msg = AgentMessage::User {
+        content: "hello world".into(),
+    };
     let json = serde_json::to_string(&msg).unwrap();
     let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
     match parsed {

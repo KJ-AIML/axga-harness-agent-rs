@@ -30,7 +30,7 @@ pub struct Theme {
 
 pub fn dark_theme() -> Theme {
     Theme {
-        primary: Color::Rgb(79, 168, 255),       // #4FA8FF blue
+        primary: Color::Rgb(79, 168, 255),        // #4FA8FF blue
         accent: Color::Rgb(0, 217, 255),          // #00D9FF cyan
         text: Color::Rgb(245, 245, 245),          // #F5F5F5
         text_dim: Color::Rgb(158, 158, 158),      // #9E9E9E

@@ -1,6 +1,6 @@
-use axga_core::tools::registry::ToolRegistry;
-use axga_core::tools::{fs, shell, code, memctrl, web_search, fetch_url};
 use axga_core::state::Conversation;
+use axga_core::tools::registry::ToolRegistry;
+use axga_core::tools::{code, fetch_url, fs, memctrl, shell, web_search};
 
 #[test]
 fn tool_registry_register_and_lookup() {
@@ -22,7 +22,9 @@ fn duplicate_tool_rejected() {
 #[test]
 fn conversation_reset() {
     let mut conv = Conversation::new();
-    conv.push(axga_shared::types::AgentMessage::User { content: "hello".into() });
+    conv.push(axga_shared::types::AgentMessage::User {
+        content: "hello".into(),
+    });
     assert_eq!(conv.len(), 1);
     conv.reset();
     assert_eq!(conv.len(), 0);

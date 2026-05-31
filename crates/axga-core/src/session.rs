@@ -14,7 +14,7 @@ pub fn save_session(messages: &[AgentMessage], path: &PathBuf) -> std::io::Resul
     for msg in messages {
         let json = serde_json::to_string(msg).unwrap_or_default();
         use std::io::Write;
-        writeln!(file, "{}", json)?;
+        writeln!(file, "{json}")?;
     }
     Ok(())
 }
@@ -35,7 +35,7 @@ pub fn list_sessions(sessions_dir: &PathBuf) -> Vec<String> {
     if let Ok(entries) = std::fs::read_dir(sessions_dir) {
         entries
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "jsonl"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
             .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
             .collect()
     } else {

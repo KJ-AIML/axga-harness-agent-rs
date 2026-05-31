@@ -12,8 +12,8 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod runtime;
-mod tui_mode;
 mod telegram;
+mod tui_mode;
 
 #[derive(Parser)]
 #[command(name = "axga", version, about = "AI coding agent for 1GB VPS")]
@@ -54,7 +54,6 @@ struct Cli {
     verbose: bool,
 
     // ── Telegram Bot ──
-
     /// Start Telegram bot mode (requires --key).
     #[arg(long)]
     telegram: bool,
@@ -68,7 +67,6 @@ struct Cli {
     onboard: bool,
 
     // ── Agent Spawning ──
-
     /// Spawn a new agent with the given prompt.
     #[arg(long)]
     spawn: Option<String>,
@@ -87,7 +85,11 @@ enum Commands {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let log_level = if cli.verbose { "axga=debug" } else { "axga=info" };
+    let log_level = if cli.verbose {
+        "axga=debug"
+    } else {
+        "axga=info"
+    };
     tracing_subscriber::fmt()
         .with_env_filter(log_level)
         .with_target(false)
@@ -103,10 +105,14 @@ fn main() -> anyhow::Result<()> {
     rt.block_on(async {
         // ── Telegram Bot Mode ──
         if cli.telegram {
-            let token = cli.key.as_deref()
-                .ok_or_else(|| anyhow::anyhow!("--key <bot_token> required for --telegram. Get one from @BotFather."))?;
+            let token = cli.key.as_deref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--key <bot_token> required for --telegram. Get one from @BotFather."
+                )
+            })?;
             let api_key = match cli.provider.as_str() {
-                "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
+                "openai" | "deepseek" => std::env::var("OPENAI_API_KEY")
+                    .ok()
                     .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
                 "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
                 _ => None,
@@ -115,7 +121,14 @@ fn main() -> anyhow::Result<()> {
                 cmd_onboard(&cli).await?;
                 println!();
             }
-            telegram::run_telegram_bot(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref()).await
+            telegram::run_telegram_bot(
+                &cli.provider,
+                api_key.as_deref(),
+                &cli.model,
+                token,
+                cli.system_prompt.as_deref(),
+            )
+            .await
         }
         // ── Onboarding wizard (without telegram) ──
         else if cli.onboard {
@@ -124,8 +137,7 @@ fn main() -> anyhow::Result<()> {
         // ── Spawn agent ──
         else if let Some(ref spawn_prompt) = cli.spawn {
             cmd_spawn(&cli, spawn_prompt)
-        }
-        else {
+        } else {
             match cli.command {
                 Some(Commands::Models) => cmd_models().await,
                 Some(Commands::Config) => cmd_config().await,
@@ -163,15 +175,32 @@ async fn cmd_config() -> anyhow::Result<()> {
 async fn cmd_doctor() -> anyhow::Result<()> {
     println!("axga doctor — diagnostics:");
     println!("  Rust:        {}", rustc_version());
-    println!("  CWD:         {}", std::env::current_dir().unwrap_or_default().display());
-    println!("  OpenAI key:  {}", if std::env::var("OPENAI_API_KEY").is_ok() { "set" } else { "not set" });
-    println!("  Anthropic:   {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "set" } else { "not set" });
+    println!(
+        "  CWD:         {}",
+        std::env::current_dir().unwrap_or_default().display()
+    );
+    println!(
+        "  OpenAI key:  {}",
+        if std::env::var("OPENAI_API_KEY").is_ok() {
+            "set"
+        } else {
+            "not set"
+        }
+    );
+    println!(
+        "  Anthropic:   {}",
+        if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+            "set"
+        } else {
+            "not set"
+        }
+    );
     Ok(())
 }
 
 async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
+    use axga_core::tools::{code, fetch_url, fs, memctrl, shell, web_search};
     use axga_core::{Conversation, ToolRegistry, run_turn};
-    use axga_core::tools::{fs, shell, code, memctrl, web_search, fetch_url};
 
     // Build tool registry
     let mut registry = ToolRegistry::new();
@@ -186,7 +215,8 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
     registry.register(web_search::WebSearchTool)?;
     registry.register(fetch_url::FetchUrlTool)?;
     let api_key = match cli.provider.as_str() {
-        "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
+        "openai" | "deepseek" => std::env::var("OPENAI_API_KEY")
+            .ok()
             .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
         "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
         _ => None,
@@ -213,13 +243,15 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
         Ok(turn) => {
             println!("{}", turn.final_text);
             if !turn.tool_calls_made.is_empty() {
-                eprintln!("\n[tools used: {} | {} tokens]",
+                eprintln!(
+                    "\n[tools used: {} | {} tokens]",
                     turn.tool_calls_made.join(", "),
-                    turn.total_tokens);
+                    turn.total_tokens
+                );
             }
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
     }
@@ -229,7 +261,8 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
 
 async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
     let api_key = match cli.provider.as_str() {
-        "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
+        "openai" | "deepseek" => std::env::var("OPENAI_API_KEY")
+            .ok()
             .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
         "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
         _ => None,
@@ -268,7 +301,10 @@ async fn cmd_onboard(cli: &Cli) -> anyhow::Result<()> {
 
     if let Some(ref token) = cli.key {
         if cli.telegram {
-            println!("\n→ Starting Telegram bot with token: {}...", &token[..8.min(token.len())]);
+            println!(
+                "\n→ Starting Telegram bot with token: {}...",
+                &token[..8.min(token.len())]
+            );
         }
     } else if cli.telegram {
         println!("\n→ --telegram requires --key <bot_token>");
@@ -282,8 +318,8 @@ fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
     let provider = cli.provider.clone();
     let model = cli.model.clone();
 
-    println!("Spawning sub-agent with prompt: {}", prompt);
-    println!("Provider: {}, Model: {}", provider, model);
+    println!("Spawning sub-agent with prompt: {prompt}");
+    println!("Provider: {provider}, Model: {model}");
 
     // Detect terminal
     let terminal = if std::env::var("TMUX").is_ok() {
@@ -298,26 +334,44 @@ fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
         "tmux" => {
             let cmd = format!(
                 "tmux split-window -h -c \"$(pwd)\" \"{} --provider {} --model {} --prompt '{}'\"",
-                current_exe.display(), provider, model, prompt
+                current_exe.display(),
+                provider,
+                model,
+                prompt
             );
-            println!("→ Spawning via tmux: {}", cmd);
-            std::process::Command::new("bash").arg("-c").arg(&cmd).spawn()?;
+            println!("→ Spawning via tmux: {cmd}");
+            std::process::Command::new("bash")
+                .arg("-c")
+                .arg(&cmd)
+                .spawn()?;
             Ok(())
         }
         "osascript" => {
             let cmd = format!(
                 "tell application \"Terminal\" to do script \"cd '$(pwd)' && {} --provider {} --model {} --prompt '{}'\"",
-                current_exe.display(), provider, model, prompt
+                current_exe.display(),
+                provider,
+                model,
+                prompt
             );
-            std::process::Command::new("osascript").arg("-e").arg(&cmd).spawn()?;
+            std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(&cmd)
+                .spawn()?;
             Ok(())
         }
         _ => {
             let cmd = format!(
                 "gnome-terminal -- bash -c \"{} --provider {} --model {} --prompt '{}'; exec \\$SHELL\"",
-                current_exe.display(), provider, model, prompt
+                current_exe.display(),
+                provider,
+                model,
+                prompt
             );
-            std::process::Command::new("bash").arg("-c").arg(&cmd).spawn()?;
+            std::process::Command::new("bash")
+                .arg("-c")
+                .arg(&cmd)
+                .spawn()?;
             Ok(())
         }
     }

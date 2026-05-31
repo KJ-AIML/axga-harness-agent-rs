@@ -104,16 +104,20 @@ fn message_to_openai_json(msg: &AgentMessage) -> Value {
 
             if let Some(ref calls) = content.tool_calls {
                 if !calls.is_empty() {
-                    msg["tool_calls"] = calls.iter().map(|tc| {
-                        serde_json::json!({
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": tc.arguments.to_string()
-                            }
+                    msg["tool_calls"] = calls
+                        .iter()
+                        .map(|tc| {
+                            serde_json::json!({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": tc.arguments.to_string()
+                                }
+                            })
                         })
-                    }).collect::<Vec<_>>().into();
+                        .collect::<Vec<_>>()
+                        .into();
                 }
             }
             msg
@@ -124,7 +128,10 @@ fn message_to_openai_json(msg: &AgentMessage) -> Value {
                 "content": content
             })
         }
-        AgentMessage::Tool { tool_call_id, content } => {
+        AgentMessage::Tool {
+            tool_call_id,
+            content,
+        } => {
             serde_json::json!({
                 "role": "tool",
                 "tool_call_id": tool_call_id,

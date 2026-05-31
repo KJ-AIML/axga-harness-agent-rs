@@ -1,9 +1,9 @@
 //! OpenAI Chat Completions provider with streaming.
 
-use axga_shared::error::{AxgaError, AxgaResult};
-use axga_shared::types::StreamEvent;
 use crate::request::RequestBuilder;
 use crate::stream::SseStream;
+use axga_shared::error::{AxgaError, AxgaResult};
+use axga_shared::types::StreamEvent;
 use futures::Stream;
 use reqwest::Client;
 use std::pin::Pin;
@@ -28,7 +28,11 @@ impl OpenAiProvider {
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .map_err(|e| AxgaError::Network(e.to_string()))?;
-        Ok(Self { client, api_key, base_url })
+        Ok(Self {
+            client,
+            api_key,
+            base_url,
+        })
     }
 
     pub async fn stream_chat(
@@ -54,7 +58,10 @@ impl OpenAiProvider {
             if status.as_u16() == 429 {
                 return Err(AxgaError::RateLimited(text));
             }
-            return Err(AxgaError::Http { status: status.as_u16(), body: text });
+            return Err(AxgaError::Http {
+                status: status.as_u16(),
+                body: text,
+            });
         }
 
         Ok(Box::pin(SseStream {

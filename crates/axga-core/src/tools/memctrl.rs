@@ -14,7 +14,9 @@ use std::process::Stdio;
 pub struct MemCtrlTool;
 
 impl Tool for MemCtrlTool {
-    fn name(&self) -> &str { "memctrl" }
+    fn name(&self) -> &str {
+        "memctrl"
+    }
     fn description(&self) -> &str {
         "Store and query project memory. Subcommands: add (store a fact), \
          query (search memories), list (show all), tree (show tree), \
@@ -47,11 +49,17 @@ impl Tool for MemCtrlTool {
             "required": ["action"]
         })
     }
-    fn execute(&self, input: Value) -> Pin<Box<dyn Future<Output = AxgaResult<String>> + Send + '_>> {
+    fn execute(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = AxgaResult<String>> + Send + '_>> {
         Box::pin(async move {
-            let action = input["action"].as_str().ok_or_else(|| AxgaError::ToolError {
-                tool: "memctrl".into(), message: "missing 'action'".into(),
-            })?;
+            let action = input["action"]
+                .as_str()
+                .ok_or_else(|| AxgaError::ToolError {
+                    tool: "memctrl".into(),
+                    message: "missing 'action'".into(),
+                })?;
 
             let content = input["content"].as_str().unwrap_or("");
             let layer = input["layer"].as_str().unwrap_or("session");
@@ -64,7 +72,8 @@ impl Tool for MemCtrlTool {
                 "add" => {
                     if content.is_empty() {
                         return Err(AxgaError::ToolError {
-                            tool: "memctrl".into(), message: "missing 'content' to add".into(),
+                            tool: "memctrl".into(),
+                            message: "missing 'content' to add".into(),
                         });
                     }
                     cmd.arg("add").arg(content);
@@ -75,7 +84,8 @@ impl Tool for MemCtrlTool {
                 "query" => {
                     if content.is_empty() {
                         return Err(AxgaError::ToolError {
-                            tool: "memctrl".into(), message: "missing 'content' to query".into(),
+                            tool: "memctrl".into(),
+                            message: "missing 'content' to query".into(),
                         });
                     }
                     cmd.arg("query").arg(content);
@@ -86,13 +96,18 @@ impl Tool for MemCtrlTool {
                         cmd.arg("--layer").arg(layer);
                     }
                 }
-                "tree" => { cmd.arg("tree"); }
-                "doctor" => { cmd.arg("doctor"); }
+                "tree" => {
+                    cmd.arg("tree");
+                }
+                "doctor" => {
+                    cmd.arg("doctor");
+                }
                 "forget" => {
                     let id = input["id"].as_str().unwrap_or("");
                     if id.is_empty() {
                         return Err(AxgaError::ToolError {
-                            tool: "memctrl".into(), message: "missing 'id' to forget".into(),
+                            tool: "memctrl".into(),
+                            message: "missing 'id' to forget".into(),
                         });
                     }
                     cmd.arg("forget").arg(id);
@@ -105,7 +120,8 @@ impl Tool for MemCtrlTool {
                 }
                 _ => {
                     return Err(AxgaError::ToolError {
-                        tool: "memctrl".into(), message: format!("unknown action: {}", action),
+                        tool: "memctrl".into(),
+                        message: format!("unknown action: {action}"),
                     });
                 }
             }
@@ -116,10 +132,12 @@ impl Tool for MemCtrlTool {
             let output = tokio::task::spawn_blocking(move || cmd.output())
                 .await
                 .map_err(|e| AxgaError::ToolError {
-                    tool: "memctrl".into(), message: e.to_string(),
+                    tool: "memctrl".into(),
+                    message: e.to_string(),
                 })?
                 .map_err(|e| AxgaError::ToolError {
-                    tool: "memctrl".into(), message: e.to_string(),
+                    tool: "memctrl".into(),
+                    message: e.to_string(),
                 })?;
 
             if output.status.success() {
@@ -138,7 +156,7 @@ impl Tool for MemCtrlTool {
                 } else if stderr.contains("not found") || stderr.contains("No such file") {
                     Ok("memctrl is not installed. Install with: pip install memctrl && memctrl init".into())
                 } else {
-                    Ok(format!("{} {}", stdout, stderr))
+                    Ok(format!("{stdout} {stderr}"))
                 }
             }
         })

@@ -39,7 +39,10 @@ pub struct SessionSection {
 
 impl Default for SessionSection {
     fn default() -> Self {
-        Self { dir: default_sessions_dir(), auto_save: true }
+        Self {
+            dir: default_sessions_dir(),
+            auto_save: true,
+        }
     }
 }
 
@@ -86,13 +89,22 @@ pub struct MemorySection {
 
 impl Default for MemorySection {
     fn default() -> Self {
-        Self { enabled: true, memctrl_path: default_memctrl_path() }
+        Self {
+            enabled: true,
+            memctrl_path: default_memctrl_path(),
+        }
     }
 }
 
-fn default_sessions_dir() -> String { "~/.config/axga/sessions".into() }
-fn default_true() -> bool { true }
-fn default_memctrl_path() -> String { "memctrl".into() }
+fn default_sessions_dir() -> String {
+    "~/.config/axga/sessions".into()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_memctrl_path() -> String {
+    "memctrl".into()
+}
 
 /// Load config from standard locations.
 pub fn load_config() -> Option<Config> {
@@ -117,13 +129,31 @@ pub fn load_config() -> Option<Config> {
 pub fn save_config(config: &Config) -> std::io::Result<()> {
     let dir = dirs_config().join("axga");
     std::fs::create_dir_all(&dir)?;
-    let content = toml::to_string_pretty(config).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let content = toml::to_string_pretty(config).map_err(std::io::Error::other)?;
     std::fs::write(dir.join("config.toml"), content)
 }
 
 fn dirs_config() -> PathBuf {
-    if let Ok(dir) = std::env::var("AXGA_CONFIG_DIR") { return PathBuf::from(dir); }
-    #[cfg(target_os = "linux")] { PathBuf::from(std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{}/.config", std::env::var("HOME").unwrap_or_default()))) }
-    #[cfg(target_os = "macos")] { PathBuf::from(format!("{}/Library/Application Support", std::env::var("HOME").unwrap_or_default())) }
-    #[cfg(target_os = "windows")] { PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into())) }
+    if let Ok(dir) = std::env::var("AXGA_CONFIG_DIR") {
+        return PathBuf::from(dir);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        PathBuf::from(
+            std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+                format!("{}/.config", std::env::var("HOME").unwrap_or_default())
+            }),
+        )
+    }
+    #[cfg(target_os = "macos")]
+    {
+        PathBuf::from(format!(
+            "{}/Library/Application Support",
+            std::env::var("HOME").unwrap_or_default()
+        ))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into()))
+    }
 }

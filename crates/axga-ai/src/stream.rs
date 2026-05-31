@@ -16,9 +16,13 @@ use std::task::{Context, Poll};
 /// Parse a single SSE line into a `StreamEvent`.
 pub fn parse_sse_line(line: &str) -> Option<AxgaResult<StreamEvent>> {
     let line = line.trim();
-    if line.is_empty() { return None; }
+    if line.is_empty() {
+        return None;
+    }
     let data = line.strip_prefix("data: ")?;
-    if data == "[DONE]" { return Some(Ok(StreamEvent::Done)); }
+    if data == "[DONE]" {
+        return Some(Ok(StreamEvent::Done));
+    }
 
     match serde_json::from_str::<Value>(data) {
         Ok(parsed) => {
@@ -26,26 +30,37 @@ pub fn parse_sse_line(line: &str) -> Option<AxgaResult<StreamEvent>> {
                 for choice in choices {
                     if let Some(delta) = choice.get("delta") {
                         if let Some(content) = delta["content"].as_str() {
-                            return Some(Ok(StreamEvent::TextDelta { text: content.to_string() }));
+                            return Some(Ok(StreamEvent::TextDelta {
+                                text: content.to_string(),
+                            }));
                         }
                         if let Some(tool_calls) = delta["tool_calls"].as_array() {
-                            for tc in tool_calls {
+                            if let Some(tc) = tool_calls.iter().next() {
                                 let id = tc["id"].as_str().unwrap_or("").to_string();
-                                let name = tc["function"]["name"].as_str().unwrap_or("").to_string();
+                                let name =
+                                    tc["function"]["name"].as_str().unwrap_or("").to_string();
                                 let args = tc["function"]["arguments"].as_str().unwrap_or("");
-                                return Some(Ok(StreamEvent::ToolCallDelta { id, name, args_fragment: args.to_string() }));
+                                return Some(Ok(StreamEvent::ToolCallDelta {
+                                    id,
+                                    name,
+                                    args_fragment: args.to_string(),
+                                }));
                             }
                         }
                     }
                     if let Some(reason) = choice.get("finish_reason").and_then(|v| v.as_str()) {
-                        if reason == "stop" { return Some(Ok(StreamEvent::Done)); }
+                        if reason == "stop" {
+                            return Some(Ok(StreamEvent::Done));
+                        }
                     }
                 }
             }
             if parsed["type"].as_str() == Some("content_block_delta") {
                 let delta = &parsed["delta"];
                 if let Some(text) = delta["text"].as_str() {
-                    return Some(Ok(StreamEvent::TextDelta { text: text.to_string() }));
+                    return Some(Ok(StreamEvent::TextDelta {
+                        text: text.to_string(),
+                    }));
                 }
             }
             if parsed["type"].as_str() == Some("message_stop") {
@@ -103,7 +118,9 @@ where
                 Poll::Ready(Some(Ok(bytes))) => {
                     let text = String::from_utf8_lossy(&bytes);
                     if self.buffer.len() + text.len() > 100_000 {
-                        return Poll::Ready(Some(Err(AxgaError::LlmProvider("SSE buffer limit exceeded".into()))));
+                        return Poll::Ready(Some(Err(AxgaError::LlmProvider(
+                            "SSE buffer limit exceeded".into(),
+                        ))));
                     }
                     self.buffer.push_str(&text);
                 }

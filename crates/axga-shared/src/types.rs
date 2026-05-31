@@ -5,6 +5,7 @@
 //! - `ToolResult` content is truncated at `MAX_TOOL_OUTPUT_LEN` before storage.
 //! - Use `Box<str>` instead of `String` for message content after streaming complete.
 
+use crate::error::{AxgaError, AxgaResult};
 use serde::{Deserialize, Serialize};
 
 // ─── Message Types ────────────────────────────────────────────────
@@ -20,7 +21,10 @@ pub enum AgentMessage {
     #[serde(rename = "system")]
     System { content: String },
     #[serde(rename = "tool")]
-    Tool { tool_call_id: String, content: String },
+    Tool {
+        tool_call_id: String,
+        content: String,
+    },
 }
 
 /// Content blocks within an assistant message.
@@ -70,13 +74,28 @@ pub struct ToolResult {
 
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
-    TextDelta { text: String },
-    ToolCallDelta { id: String, name: String, args_fragment: String },
-    ThinkingDelta { text: String },
-    Usage { input_tokens: u32, output_tokens: u32 },
+    TextDelta {
+        text: String,
+    },
+    ToolCallDelta {
+        id: String,
+        name: String,
+        args_fragment: String,
+    },
+    ThinkingDelta {
+        text: String,
+    },
+    Usage {
+        input_tokens: u32,
+        output_tokens: u32,
+    },
     Done,
-    Stop { reason: String },
-    Error { message: String },
+    Stop {
+        reason: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // ─── Configuration ────────────────────────────────────────────────
@@ -118,12 +137,16 @@ impl TokenBudget {
         self.used.saturating_add(n) > self.max
     }
 
-    /// Reserve `n` tokens. Returns `Err` if budget exceeded.
-    pub fn reserve(&mut self, n: u32) -> Result<(), ()> {
-        if self.would_exceed(n) {
-            return Err(());
+    /// Reserve `n` tokens. Returns `Err` if the budget would be exceeded.
+    pub fn reserve(&mut self, n: u32) -> AxgaResult<()> {
+        let next_used = self.used.saturating_add(n);
+        if next_used > self.max {
+            return Err(AxgaError::TokenLimitExceeded {
+                used: next_used,
+                max: self.max,
+            });
         }
-        self.used += n;
+        self.used = next_used;
         Ok(())
     }
 

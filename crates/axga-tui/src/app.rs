@@ -14,13 +14,16 @@
 //! ╰──────────────────────────────────────────────────╯
 //! ```
 
-use crate::theme::Theme;
 use crate::markdown::{self, MarkdownTheme};
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph, List, ListState, ListItem, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use crate::theme::Theme;
 use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{
+    Block, Borders, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState,
+};
 
 pub struct App {
     pub input: String,
@@ -128,26 +131,39 @@ impl App {
 
         parts.push(Span::styled(
             format!(" {} ", self.status.model),
-            Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(self.theme.primary)
+                .add_modifier(Modifier::BOLD),
         ));
-        parts.push(Span::styled("│", Style::default().fg(self.theme.text_muted)));
+        parts.push(Span::styled(
+            "│",
+            Style::default().fg(self.theme.text_muted),
+        ));
         parts.push(Span::styled(
             format!(" {} tokens ", self.status.tokens_used),
             Style::default().fg(self.theme.text_dim),
         ));
 
         if self.is_streaming {
-            let spinner = crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
+            let spinner =
+                crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
             parts.push(Span::styled(
-                format!(" {} ", spinner),
+                format!(" {spinner} "),
                 Style::default().fg(self.theme.accent),
             ));
         }
 
         // Scroll position
-        parts.push(Span::styled("│", Style::default().fg(self.theme.text_muted)));
         parts.push(Span::styled(
-            format!(" {}/{} ", self.scroll_pos().saturating_add(1), self.chat_lines.len()),
+            "│",
+            Style::default().fg(self.theme.text_muted),
+        ));
+        parts.push(Span::styled(
+            format!(
+                " {}/{} ",
+                self.scroll_pos().saturating_add(1),
+                self.chat_lines.len()
+            ),
             Style::default().fg(self.theme.text_dim),
         ));
 
@@ -162,15 +178,23 @@ impl App {
             InputMode::Command => "CMD",
         };
         let mode_span = Span::styled(
-            format!(" {} ", mode_str),
-            Style::default().fg(self.theme.status_bar_fg).bg(match self.mode {
-                InputMode::Insert => self.theme.primary,
-                InputMode::Normal => self.theme.text_muted,
-                InputMode::Command => self.theme.warning,
-            }).add_modifier(Modifier::BOLD),
+            format!(" {mode_str} "),
+            Style::default()
+                .fg(self.theme.status_bar_fg)
+                .bg(match self.mode {
+                    InputMode::Insert => self.theme.primary,
+                    InputMode::Normal => self.theme.text_muted,
+                    InputMode::Command => self.theme.warning,
+                })
+                .add_modifier(Modifier::BOLD),
         );
         let mode_x = area.width.saturating_sub(mode_str.len() as u16 + 3);
-        let mode_area = Rect { x: area.x + mode_x, y: area.y, width: mode_str.len() as u16 + 2, height: 1 };
+        let mode_area = Rect {
+            x: area.x + mode_x,
+            y: area.y,
+            width: mode_str.len() as u16 + 2,
+            height: 1,
+        };
         f.render_widget(Paragraph::new(Text::from(mode_span)), mode_area);
     }
 
@@ -178,57 +202,85 @@ impl App {
         let pad = "  ";
 
         // Build list items from chat lines
-        let items: Vec<ListItem> = self.chat_lines.iter().map(|chat_line| {
-            match chat_line {
-                ChatLine::User(text) => {
-                    ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}✦  ", pad), Style::default().fg(self.theme.role_user).add_modifier(Modifier::BOLD)),
-                        Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
-                    ]))
-                }
+        let items: Vec<ListItem> = self
+            .chat_lines
+            .iter()
+            .map(|chat_line| match chat_line {
+                ChatLine::User(text) => ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("{pad}✦  "),
+                        Style::default()
+                            .fg(self.theme.role_user)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
+                ])),
                 ChatLine::Assistant(text) => {
                     let md_text = markdown::render_markdown(text, &self.markdown_theme);
-                    let height = md_text.height();
                     ListItem::new(md_text).style(Style::default())
                 }
-                ChatLine::Tool { name, detail } => {
-                    ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}⚙  ", pad), Style::default().fg(self.theme.role_tool)),
-                        Span::styled(name.as_str(), Style::default().fg(self.theme.role_tool).add_modifier(Modifier::BOLD)),
-                        Span::styled(" → ", Style::default().fg(self.theme.text_muted)),
-                        Span::styled(detail.as_str(), Style::default().fg(self.theme.text_dim)),
-                    ]))
-                }
-                ChatLine::Info(text) => {
-                    ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}ℹ  ", pad), Style::default().fg(self.theme.text_muted)),
-                        Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim)),
-                    ]))
-                }
-                ChatLine::Error(text) => {
-                    ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}✗  ", pad), Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
-                        Span::styled(text.as_str(), Style::default().fg(self.theme.error)),
-                    ]))
-                }
+                ChatLine::Tool { name, detail } => ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("{pad}⚙  "),
+                        Style::default().fg(self.theme.role_tool),
+                    ),
+                    Span::styled(
+                        name.as_str(),
+                        Style::default()
+                            .fg(self.theme.role_tool)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(" → ", Style::default().fg(self.theme.text_muted)),
+                    Span::styled(detail.as_str(), Style::default().fg(self.theme.text_dim)),
+                ])),
+                ChatLine::Info(text) => ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("{pad}ℹ  "),
+                        Style::default().fg(self.theme.text_muted),
+                    ),
+                    Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim)),
+                ])),
+                ChatLine::Error(text) => ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("{pad}✗  "),
+                        Style::default()
+                            .fg(self.theme.error)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(text.as_str(), Style::default().fg(self.theme.error)),
+                ])),
                 ChatLine::Thinking(text) => {
-                    let spinner = crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
+                    let spinner = crate::theme::SPINNER_FRAMES
+                        [self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
                     ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}{}  ", pad, spinner), Style::default().fg(self.theme.role_thinking)),
-                        Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim).add_modifier(Modifier::ITALIC)),
+                        Span::styled(
+                            format!("{pad}{spinner}  "),
+                            Style::default().fg(self.theme.role_thinking),
+                        ),
+                        Span::styled(
+                            text.as_str(),
+                            Style::default()
+                                .fg(self.theme.text_dim)
+                                .add_modifier(Modifier::ITALIC),
+                        ),
                     ]))
                 }
-                ChatLine::Spacer => {
-                    ListItem::new("")
-                }
-            }
-        }).collect();
+                ChatLine::Spacer => ListItem::new(""),
+            })
+            .collect();
 
         let list = List::new(items)
-            .block(Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(self.theme.border))
-                .title(Span::styled(" AXGA ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD))))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(self.theme.border))
+                    .title(Span::styled(
+                        " AXGA ",
+                        Style::default()
+                            .fg(self.theme.primary)
+                            .add_modifier(Modifier::BOLD),
+                    )),
+            )
             .highlight_style(Style::default())
             .scroll_padding(0);
 
@@ -240,8 +292,7 @@ impl App {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None);
-        let mut scrollbar_state = self.scrollbar_state.clone()
-            .content_length(self.chat_lines.len());
+        let mut scrollbar_state = self.scrollbar_state.content_length(self.chat_lines.len());
         let scrollbar_area = Rect {
             x: area.x + area.width.saturating_sub(2),
             y: area.y + 1,
@@ -252,10 +303,20 @@ impl App {
     }
 
     fn render_input(&self, f: &mut Frame, area: Rect) {
-        let prompt = Span::styled(" > ", Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD));
+        let prompt = Span::styled(
+            " > ",
+            Style::default()
+                .fg(self.theme.primary)
+                .add_modifier(Modifier::BOLD),
+        );
 
         let input_display = if self.input.is_empty() {
-            Span::styled("type your message...", Style::default().fg(self.theme.text_muted).add_modifier(Modifier::ITALIC))
+            Span::styled(
+                "type your message...",
+                Style::default()
+                    .fg(self.theme.text_muted)
+                    .add_modifier(Modifier::ITALIC),
+            )
         } else {
             Span::styled(self.input.as_str(), Style::default().fg(self.theme.text))
         };
@@ -264,10 +325,15 @@ impl App {
         let input_widget = Paragraph::new(text).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(
-                    if self.mode == InputMode::Insert { self.theme.border_focus } else { self.theme.border }
-                ))
-                .title(Span::styled(" Input ", Style::default().fg(self.theme.text_dim))),
+                .border_style(Style::default().fg(if self.mode == InputMode::Insert {
+                    self.theme.border_focus
+                } else {
+                    self.theme.border
+                }))
+                .title(Span::styled(
+                    " Input ",
+                    Style::default().fg(self.theme.text_dim),
+                )),
         );
 
         f.render_widget(input_widget, area);

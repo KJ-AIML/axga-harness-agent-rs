@@ -7,9 +7,8 @@
 //! 2. Starts long-polling getUpdates
 //! 3. Each incoming message → runs agent → sends reply
 
+use axga_core::tools::{code, fetch_url, fs, memctrl, shell, web_search};
 use axga_core::{Conversation, ToolRegistry, run_turn};
-use axga_core::tools::{fs, shell, code, memctrl, web_search, fetch_url};
-use axga_shared::types::AgentMessage;
 use serde_json::Value;
 use std::time::Duration;
 
@@ -23,7 +22,7 @@ pub async fn run_telegram_bot(
     let client = reqwest::Client::new();
 
     // Validate token
-    let me_url = format!("https://api.telegram.org/bot{}/getMe", token);
+    let me_url = format!("https://api.telegram.org/bot{token}/getMe");
     let me: Value = client.get(&me_url).send().await?.json().await?;
 
     if !me["ok"].as_bool().unwrap_or(false) {
@@ -48,9 +47,12 @@ pub async fn run_telegram_bot(
     let mut conversation = Conversation::new();
     let mut last_update_id: i64 = 0;
 
-    println!("🤖 Telegram bot @{} is running. Press Ctrl+C to stop.", bot_name);
-    println!("   Send a message to @{} on Telegram.", bot_name);
-    println!("   Tokens checked: {}", token.chars().take(8).collect::<String>());
+    println!("🤖 Telegram bot @{bot_name} is running. Press Ctrl+C to stop.");
+    println!("   Send a message to @{bot_name} on Telegram.");
+    println!(
+        "   Tokens checked: {}",
+        token.chars().take(8).collect::<String>()
+    );
     println!();
 
     loop {
@@ -60,11 +62,19 @@ pub async fn run_telegram_bot(
             last_update_id + 1
         );
 
-        match client.get(&updates_url).timeout(Duration::from_secs(35)).send().await {
+        match client
+            .get(&updates_url)
+            .timeout(Duration::from_secs(35))
+            .send()
+            .await
+        {
             Ok(resp) => {
                 let updates: Value = match resp.json().await {
                     Ok(u) => u,
-                    Err(_) => { tokio::time::sleep(Duration::from_secs(1)).await; continue; }
+                    Err(_) => {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
                 };
 
                 if let Some(results) = updates["result"].as_array() {
@@ -86,24 +96,31 @@ pub async fn run_telegram_bot(
                             tracing::info!(%username, %chat_id, %text, "message received");
 
                             // Show typing indicator
-                            let _ = client.post(format!(
-                                "https://api.telegram.org/bot{}/sendChatAction",
-                                token
-                            ))
-                            .json(&serde_json::json!({
-                                "chat_id": chat_id,
-                                "action": "typing"
-                            }))
-                            .send()
-                            .await;
+                            let _ = client
+                                .post(format!(
+                                    "https://api.telegram.org/bot{token}/sendChatAction"
+                                ))
+                                .json(&serde_json::json!({
+                                    "chat_id": chat_id,
+                                    "action": "typing"
+                                }))
+                                .send()
+                                .await;
 
                             // Run agent
                             match run_turn(
-                                provider, api_key, None, model,
-                                &mut conversation, text,
-                                &registry, system_prompt,
+                                provider,
+                                api_key,
+                                None,
+                                model,
+                                &mut conversation,
+                                text,
+                                &registry,
+                                system_prompt,
                                 10,
-                            ).await {
+                            )
+                            .await
+                            {
                                 Ok(turn) => {
                                     let reply = if turn.final_text.is_empty() {
                                         "Done.".to_string()
@@ -111,31 +128,31 @@ pub async fn run_telegram_bot(
                                         truncate_telegram(&turn.final_text)
                                     };
 
-                                    let _ = client.post(format!(
-                                        "https://api.telegram.org/bot{}/sendMessage",
-                                        token
-                                    ))
-                                    .json(&serde_json::json!({
-                                        "chat_id": chat_id,
-                                        "text": reply,
-                                        "parse_mode": "Markdown"
-                                    }))
-                                    .send()
-                                    .await;
+                                    let _ = client
+                                        .post(format!(
+                                            "https://api.telegram.org/bot{token}/sendMessage"
+                                        ))
+                                        .json(&serde_json::json!({
+                                            "chat_id": chat_id,
+                                            "text": reply,
+                                            "parse_mode": "Markdown"
+                                        }))
+                                        .send()
+                                        .await;
 
                                     tracing::info!(%username, "reply sent ({} chars)", reply.len());
                                 }
                                 Err(e) => {
-                                    let _ = client.post(format!(
-                                        "https://api.telegram.org/bot{}/sendMessage",
-                                        token
-                                    ))
-                                    .json(&serde_json::json!({
-                                        "chat_id": chat_id,
-                                        "text": format!("Error: {}", e)
-                                    }))
-                                    .send()
-                                    .await;
+                                    let _ = client
+                                        .post(format!(
+                                            "https://api.telegram.org/bot{token}/sendMessage"
+                                        ))
+                                        .json(&serde_json::json!({
+                                            "chat_id": chat_id,
+                                            "text": format!("Error: {}", e)
+                                        }))
+                                        .send()
+                                        .await;
                                 }
                             }
                         }

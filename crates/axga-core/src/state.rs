@@ -65,6 +65,11 @@ impl Conversation {
         self.messages.len()
     }
 
+    /// Whether the conversation has no stored messages.
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
     /// Total turns in this conversation (including summarized ones).
     pub fn turn_count(&self) -> usize {
         self.turn_count
@@ -119,9 +124,8 @@ impl Conversation {
             summary.push_str("...");
         }
 
-        self.messages.push_front(AgentMessage::System {
-            content: summary,
-        });
+        self.messages
+            .push_front(AgentMessage::System { content: summary });
     }
 }
 
@@ -151,7 +155,7 @@ mod tests {
         let mut conv = Conversation::new();
         for i in 0..25 {
             conv.push(AgentMessage::User {
-                content: format!("message {}", i),
+                content: format!("message {i}"),
             });
         }
         // Should not exceed MAX_CONVERSATION_TURNS
@@ -164,13 +168,16 @@ mod tests {
         for i in 0..25 {
             conv.push(AgentMessage::Assistant {
                 content: axga_shared::types::AssistantContent {
-                    text: Some(format!("response {}", i)),
+                    text: Some(format!("response {i}")),
                     tool_calls: None,
                     thinking: None,
                 },
             });
         }
         // First message should be a system summary
-        assert!(matches!(conv.messages().next(), Some(AgentMessage::System { .. })));
+        assert!(matches!(
+            conv.messages().next(),
+            Some(AgentMessage::System { .. })
+        ));
     }
 }

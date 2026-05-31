@@ -1,8 +1,8 @@
 //! Anthropic Messages API provider with streaming.
 
+use crate::stream::SseStream;
 use axga_shared::error::{AxgaError, AxgaResult};
 use axga_shared::types::{AgentMessage, StreamEvent, ToolDefinition};
-use crate::stream::SseStream;
 use futures::Stream;
 use reqwest::Client;
 use std::pin::Pin;
@@ -58,26 +58,42 @@ impl AnthropicProvider {
             "model": model, "messages": anthropic_messages,
             "max_tokens": max_tokens, "stream": true,
         });
-        if let Some(sys) = system_prompt { body["system"] = serde_json::Value::String(sys.to_string()); }
+        if let Some(sys) = system_prompt {
+            body["system"] = serde_json::Value::String(sys.to_string());
+        }
         if !tools.is_empty() {
-            body["tools"] = tools.iter().map(|t| serde_json::json!({
-                "name": t.name, "description": t.description, "input_schema": t.parameters
-            })).collect::<Vec<_>>().into();
+            body["tools"] = tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name, "description": t.description, "input_schema": t.parameters
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into();
         }
 
-        let response = self.client
+        let response = self
+            .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
             .json(&body)
-            .send().await.map_err(|e| AxgaError::Network(e.to_string()))?;
+            .send()
+            .await
+            .map_err(|e| AxgaError::Network(e.to_string()))?;
 
         let status = response.status();
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
-            if status.as_u16() == 429 { return Err(AxgaError::RateLimited(text)); }
-            return Err(AxgaError::Http { status: status.as_u16(), body: text });
+            if status.as_u16() == 429 {
+                return Err(AxgaError::RateLimited(text));
+            }
+            return Err(AxgaError::Http {
+                status: status.as_u16(),
+                body: text,
+            });
         }
 
         Ok(Box::pin(SseStream {

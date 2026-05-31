@@ -24,11 +24,7 @@ pub enum AxgaError {
     ToolError { tool: String, message: String },
 
     #[error("File too large: {path} is {size} bytes (max {limit})")]
-    FileTooLarge {
-        path: String,
-        size: u64,
-        limit: u64,
-    },
+    FileTooLarge { path: String, size: u64, limit: u64 },
 
     #[error("File not found: {0}")]
     FileNotFound(String),

@@ -11,15 +11,13 @@
 //! - Each loop iteration yields a Collector that drains the stream without buffering.
 //! - Tool outputs truncated at MAX_TOOL_OUTPUT_LEN before pushing to conversation.
 
+use crate::ToolRegistry;
+use crate::executor::execute_tool_calls;
+use crate::state::Conversation;
+use axga_ai::request::RequestBuilder;
 use axga_shared::error::{AxgaError, AxgaResult};
 use axga_shared::limits;
-use axga_shared::types::{
-    AgentMessage, AssistantContent, StreamEvent, ToolCall, ToolDefinition,
-};
-use axga_ai::request::RequestBuilder;
-use crate::state::Conversation;
-use crate::executor::execute_tool_calls;
-use crate::ToolRegistry;
+use axga_shared::types::{AgentMessage, AssistantContent, StreamEvent, ToolCall, ToolDefinition};
 use futures::{Stream, StreamExt};
 use tracing::debug;
 
@@ -31,6 +29,7 @@ pub struct TurnResult {
 }
 
 /// Run a single turn of the agent: user input → LLM → tools → loop → final response.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_turn(
     provider_type: &str,
     api_key: Option<&str>,
@@ -67,8 +66,7 @@ pub async fn run_turn(
 
         // Stream LLM response
         let messages: Vec<AgentMessage> = conversation.messages().cloned().collect();
-        let request = RequestBuilder::new(model, &messages)
-            .with_max_tokens(4096);
+        let request = RequestBuilder::new(model, &messages).with_max_tokens(4096);
 
         let request = if let Some(sys) = system_prompt {
             request.with_system_prompt(sys)
@@ -104,9 +102,15 @@ pub async fn run_turn(
                 let provider = axga_ai::providers::anthropic::AnthropicProvider::new(
                     api_key.map(|s| s.to_string()),
                 )?;
-                provider.stream_chat(model, &messages, system_prompt, &tool_defs, 4096).await?
+                provider
+                    .stream_chat(model, &messages, system_prompt, &tool_defs, 4096)
+                    .await?
             }
-            _ => return Err(AxgaError::Config(format!("unknown provider: {}", provider_type))),
+            _ => {
+                return Err(AxgaError::Config(format!(
+                    "unknown provider: {provider_type}"
+                )));
+            }
         };
 
         // Collect stream events
@@ -138,7 +142,11 @@ pub async fn run_turn(
         if valid_tool_calls.is_empty() {
             // No valid tool calls — treat as text-only response
             conversation.push(AgentMessage::Assistant {
-                content: AssistantContent { text: Some(text), tool_calls: None, thinking: None },
+                content: AssistantContent {
+                    text: Some(text),
+                    tool_calls: None,
+                    thinking: None,
+                },
             });
             break;
         }
@@ -158,7 +166,9 @@ pub async fn run_turn(
         });
 
         for result in results {
-            if result.tool_call_id.is_empty() { continue; }
+            if result.tool_call_id.is_empty() {
+                continue;
+            }
             conversation.push(AgentMessage::Tool {
                 tool_call_id: result.tool_call_id,
                 content: truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN),
@@ -190,7 +200,11 @@ where
             StreamEvent::TextDelta { text: t } => {
                 text.push_str(&t);
             }
-            StreamEvent::ToolCallDelta { id, name, args_fragment } => {
+            StreamEvent::ToolCallDelta {
+                id,
+                name,
+                args_fragment,
+            } => {
                 if id.is_empty() {
                     // ID hasn't arrived yet — merge args into current
                     if let Some(ref mut tc) = current_tc {
@@ -199,7 +213,7 @@ where
                             existing.push_str(&args_fragment);
                         }
                     }
-                } else if current_tc.as_ref().map_or(true, |tc| tc.id != id) {
+                } else if current_tc.as_ref().is_none_or(|tc| tc.id != id) {
                     if let Some(tc) = current_tc.take() {
                         tool_calls.push(tc);
                     }
@@ -215,7 +229,10 @@ where
                 }
             }
             StreamEvent::ThinkingDelta { .. } => {}
-            StreamEvent::Usage { input_tokens, output_tokens } => {
+            StreamEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
                 tokens += input_tokens + output_tokens;
             }
             StreamEvent::Done => break,
@@ -233,8 +250,13 @@ where
     if let Some(tc) = current_tc.take() {
         if !tc.id.is_empty() && !tc.name.is_empty() {
             if let serde_json::Value::String(ref args_str) = tc.arguments {
-                let parsed: serde_json::Value = serde_json::from_str(args_str).unwrap_or(tc.arguments.clone());
-                tool_calls.push(ToolCall { id: tc.id, name: tc.name, arguments: parsed });
+                let parsed: serde_json::Value =
+                    serde_json::from_str(args_str).unwrap_or(tc.arguments.clone());
+                tool_calls.push(ToolCall {
+                    id: tc.id,
+                    name: tc.name,
+                    arguments: parsed,
+                });
             } else {
                 tool_calls.push(tc);
             }
@@ -242,9 +264,16 @@ where
     }
 
     // Filter: only keep tool calls with valid ids and names
-    let valid_count = tool_calls.iter().filter(|tc| !tc.id.is_empty() && !tc.name.is_empty()).count();
+    let valid_count = tool_calls
+        .iter()
+        .filter(|tc| !tc.id.is_empty() && !tc.name.is_empty())
+        .count();
     if valid_count < tool_calls.len() {
-        tracing::warn!(total = tool_calls.len(), valid = valid_count, "some tool calls had empty ids, filtering");
+        tracing::warn!(
+            total = tool_calls.len(),
+            valid = valid_count,
+            "some tool calls had empty ids, filtering"
+        );
         tool_calls.retain(|tc| !tc.id.is_empty() && !tc.name.is_empty());
     }
 
@@ -256,7 +285,10 @@ fn truncate(s: &str, max_len: usize) -> String {
         s.to_string()
     } else {
         let mut t = s[..max_len].to_string();
-        t.push_str(&format!("\n... [{} more bytes truncated]", s.len() - max_len));
+        t.push_str(&format!(
+            "\n... [{} more bytes truncated]",
+            s.len() - max_len
+        ));
         t
     }
 }

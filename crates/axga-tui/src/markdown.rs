@@ -57,18 +57,25 @@ fn render_line(line: &str, theme: &MarkdownTheme) -> Line<'static> {
     if let Some(heading) = trimmed.strip_prefix("# ") {
         return Line::from(vec![Span::styled(
             heading.to_string(),
-            Style::default().fg(theme.heading).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.heading)
+                .add_modifier(Modifier::BOLD),
         )]);
     }
     if let Some(heading) = trimmed.strip_prefix("## ") {
         return Line::from(vec![Span::styled(
             heading.to_string(),
-            Style::default().fg(theme.heading).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.heading)
+                .add_modifier(Modifier::BOLD),
         )]);
     }
 
     // List item
-    if let Some(item) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+    if let Some(item) = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+    {
         let content = render_inline(item, theme);
         let mut spans = vec![Span::styled("  • ", Style::default().fg(theme.list_bullet))];
         spans.extend(content.spans);
@@ -80,7 +87,7 @@ fn render_line(line: &str, theme: &MarkdownTheme) -> Line<'static> {
         let content = render_inline(&item, theme);
         let num = trimmed.split('.').next().unwrap_or("1");
         let mut spans = vec![Span::styled(
-            format!("  {}. ", num),
+            format!("  {num}. "),
             Style::default().fg(theme.list_bullet),
         )];
         spans.extend(content.spans);
@@ -112,10 +119,7 @@ fn render_inline(text: &str, theme: &MarkdownTheme) -> Line<'static> {
         let code = remaining.find('`');
         let link = remaining.find('[');
 
-        let pos = [bold, italic, code, link]
-            .iter()
-            .filter_map(|&p| p)
-            .min();
+        let pos = [bold, italic, code, link].iter().filter_map(|&p| p).min();
 
         match pos {
             None => {

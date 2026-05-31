@@ -3,13 +3,13 @@
 //! Tools are registered at startup and looked up by name at runtime.
 //! Each tool is a `Box<dyn Tool>` for runtime polymorphism.
 
-pub mod registry;
-pub mod fs;
-pub mod shell;
 pub mod code;
-pub mod memctrl;
-pub mod web_search;
 pub mod fetch_url;
+pub mod fs;
+pub mod memctrl;
+pub mod registry;
+pub mod shell;
+pub mod web_search;
 
 use axga_shared::error::AxgaResult;
 use serde_json::Value;

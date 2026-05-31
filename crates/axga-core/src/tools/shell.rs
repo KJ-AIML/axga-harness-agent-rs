@@ -14,7 +14,9 @@ use std::pin::Pin;
 pub struct ShellTool;
 
 impl Tool for ShellTool {
-    fn name(&self) -> &str { "execute_shell" }
+    fn name(&self) -> &str {
+        "execute_shell"
+    }
     fn description(&self) -> &str {
         "Execute a shell command. Default timeout 60s. Returns stdout, stderr, and exit code."
     }
@@ -29,11 +31,17 @@ impl Tool for ShellTool {
             "required": ["command"]
         })
     }
-    fn execute(&self, input: Value) -> Pin<Box<dyn Future<Output = AxgaResult<String>> + Send + '_>> {
+    fn execute(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = AxgaResult<String>> + Send + '_>> {
         Box::pin(async move {
-            let command = input["command"].as_str().ok_or_else(|| AxgaError::ToolError {
-                tool: "execute_shell".into(), message: "missing 'command'".into(),
-            })?;
+            let command = input["command"]
+                .as_str()
+                .ok_or_else(|| AxgaError::ToolError {
+                    tool: "execute_shell".into(),
+                    message: "missing 'command'".into(),
+                })?;
             let timeout_secs = input["timeout_seconds"].as_u64().unwrap_or(60);
 
             #[cfg(target_os = "windows")]
@@ -53,7 +61,7 @@ impl Tool for ShellTool {
             .await
             .map_err(|_| AxgaError::ToolError {
                 tool: "execute_shell".into(),
-                message: format!("timed out after {}s", timeout_secs),
+                message: format!("timed out after {timeout_secs}s"),
             })??;
 
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -61,13 +69,17 @@ impl Tool for ShellTool {
             let exit = output.status.code().unwrap_or(-1);
 
             let mut result = String::new();
-            if !stdout.is_empty() { result.push_str(&stdout); }
+            if !stdout.is_empty() {
+                result.push_str(&stdout);
+            }
             if !stderr.is_empty() {
-                if !result.is_empty() { result.push('\n'); }
+                if !result.is_empty() {
+                    result.push('\n');
+                }
                 result.push_str("[stderr]\n");
                 result.push_str(&stderr);
             }
-            result.push_str(&format!("\nExit code: {}", exit));
+            result.push_str(&format!("\nExit code: {exit}"));
             Ok(result)
         })
     }

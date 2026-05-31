@@ -9,7 +9,9 @@ use std::pin::Pin;
 pub struct FetchUrlTool;
 
 impl Tool for FetchUrlTool {
-    fn name(&self) -> &str { "fetch_url" }
+    fn name(&self) -> &str {
+        "fetch_url"
+    }
     fn description(&self) -> &str {
         "Fetch and extract text content from a URL. Returns the page text (HTML stripped)."
     }
@@ -23,10 +25,14 @@ impl Tool for FetchUrlTool {
             "required": ["url"]
         })
     }
-    fn execute(&self, input: Value) -> Pin<Box<dyn Future<Output = AxgaResult<String>> + Send + '_>> {
+    fn execute(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = AxgaResult<String>> + Send + '_>> {
         Box::pin(async move {
             let url = input["url"].as_str().ok_or_else(|| AxgaError::ToolError {
-                tool: "fetch_url".into(), message: "missing 'url'".into(),
+                tool: "fetch_url".into(),
+                message: "missing 'url'".into(),
             })?;
             let max_chars = input["max_chars"].as_u64().unwrap_or(5000) as usize;
 
@@ -36,27 +42,22 @@ impl Tool for FetchUrlTool {
                 .build()
                 .map_err(|e| AxgaError::Network(e.to_string()))?;
 
-            let html = client.get(url).send().await
+            let html = client
+                .get(url)
+                .send()
+                .await
                 .map_err(|e| AxgaError::Network(e.to_string()))?
-                .text().await
+                .text()
+                .await
                 .map_err(|e| AxgaError::Network(e.to_string()))?;
 
             // Simple HTML-to-text: strip tags
             let mut text = String::new();
             let mut in_tag = false;
-            let mut in_script = false;
 
             for c in html.chars() {
-                if in_script {
-                    if c == '>' { in_script = false; }
-                    continue;
-                }
                 match c {
-                    '<' => {
-                        in_tag = true;
-                        // Check for script/style
-                        let rest = &html[html.len().saturating_sub(html.len())..];
-                    }
+                    '<' => in_tag = true,
                     '>' => in_tag = false,
                     _ if !in_tag => {
                         if text.len() < max_chars {
@@ -76,7 +77,11 @@ impl Tool for FetchUrlTool {
                 .join("\n");
 
             Ok(if cleaned.len() > max_chars {
-                format!("{}...\n[truncated at {} chars]", &cleaned[..max_chars], max_chars)
+                format!(
+                    "{}...\n[truncated at {} chars]",
+                    &cleaned[..max_chars],
+                    max_chars
+                )
             } else {
                 cleaned
             })

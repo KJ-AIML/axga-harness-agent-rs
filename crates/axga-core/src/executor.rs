@@ -6,11 +6,11 @@
 //! 3. Results flow through a bounded `mpsc` channel (TOOL_CHANNEL_CAP = 100)
 //! 4. After all tools complete, conversation state is updated
 
+use crate::tools::registry::ToolRegistry;
 use axga_shared::error::AxgaResult;
 use axga_shared::limits;
-use axga_shared::types::ToolResult;
-use crate::tools::registry::ToolRegistry;
 use axga_shared::types::ToolCall;
+use axga_shared::types::ToolResult;
 use tokio::sync::mpsc;
 use tracing::debug;
 
@@ -47,7 +47,7 @@ pub async fn execute_tool_calls(
             Some(Err(e)) => {
                 results.push(ToolResult {
                     tool_call_id: String::new(),
-                    content: format!("Error: {}", e),
+                    content: format!("Error: {e}"),
                     is_error: true,
                 });
             }
@@ -58,18 +58,16 @@ pub async fn execute_tool_calls(
     Ok(results)
 }
 
-async fn execute_single_tool(
-    registry: &ToolRegistry,
-    call: &ToolCall,
-) -> AxgaResult<ToolResult> {
+async fn execute_single_tool(registry: &ToolRegistry, call: &ToolCall) -> AxgaResult<ToolResult> {
     debug!(tool = %call.name, id = %call.id, "executing tool");
 
-    let tool = registry
-        .get(&call.name)
-        .ok_or_else(|| axga_shared::error::AxgaError::ToolError {
-            tool: call.name.clone(),
-            message: "tool not found in registry".into(),
-        })?;
+    let tool =
+        registry
+            .get(&call.name)
+            .ok_or_else(|| axga_shared::error::AxgaError::ToolError {
+                tool: call.name.clone(),
+                message: "tool not found in registry".into(),
+            })?;
 
     let output = tool.execute(call.arguments.clone()).await?;
 

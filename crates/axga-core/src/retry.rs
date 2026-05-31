@@ -25,7 +25,11 @@ where
                 }
                 attempt += 1;
                 let delay = base_delay * 2u32.pow(attempt);
-                warn!(attempt, delay_ms = delay.as_millis(), "retrying after error");
+                warn!(
+                    attempt,
+                    delay_ms = delay.as_millis(),
+                    "retrying after error"
+                );
                 tokio::time::sleep(delay).await;
             }
         }
@@ -37,6 +41,9 @@ fn is_retryable(error: &AxgaError) -> bool {
         error,
         AxgaError::RateLimited(_)
             | AxgaError::Network(_)
-            | AxgaError::Http { status: 500..=599, .. }
+            | AxgaError::Http {
+                status: 500..=599,
+                ..
+            }
     )
 }

@@ -223,7 +223,8 @@ docker run -e DEEPSEEK_API_KEY="sk-..." axga --telegram --key "BOT_TOKEN" --prov
 git clone https://github.com/KJ-AIML/axga-harness-agent-rs
 cd axga-harness-agent-rs
 cargo build --release
-cargo test
+cargo test --all
+cargo fmt --check
 cargo clippy -- -D warnings
 ```
 

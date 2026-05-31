@@ -16,7 +16,10 @@ impl ToolRegistry {
     }
 
     /// Register a tool. Returns `Err` if a tool with the same name already exists.
-    pub fn register(&mut self, tool: impl Tool + 'static) -> Result<(), axga_shared::error::AxgaError> {
+    pub fn register(
+        &mut self,
+        tool: impl Tool + 'static,
+    ) -> Result<(), axga_shared::error::AxgaError> {
         let name = tool.name().to_string();
         if self.tools.contains_key(&name) {
             return Err(axga_shared::error::AxgaError::ToolError {
