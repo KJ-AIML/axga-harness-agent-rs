@@ -129,10 +129,18 @@ pub fn load_config() -> Option<Config> {
 
 /// Save a config file.
 pub fn save_config(config: &Config) -> std::io::Result<()> {
-    let dir = dirs_config().join("axga");
-    std::fs::create_dir_all(&dir)?;
+    let path = config_file_path();
+    let dir = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("invalid config path"))?;
+    std::fs::create_dir_all(dir)?;
     let content = toml::to_string_pretty(config).map_err(std::io::Error::other)?;
-    std::fs::write(dir.join("config.toml"), content)
+    std::fs::write(path, content)
+}
+
+/// Return the primary config file path.
+pub fn config_file_path() -> PathBuf {
+    dirs_config().join("axga").join("config.toml")
 }
 
 fn dirs_config() -> PathBuf {

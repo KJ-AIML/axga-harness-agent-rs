@@ -12,7 +12,7 @@ pub mod state;
 pub mod tools;
 
 pub use agent_loop::run_turn;
-pub use config::{Config, load_config, save_config};
+pub use config::{Config, config_file_path, load_config, save_config};
 pub use provider_registry::{
     ProviderKind, ProviderSpec, ResolvedProvider, default_model_for_provider, provider_spec,
     provider_specs, resolve_provider,

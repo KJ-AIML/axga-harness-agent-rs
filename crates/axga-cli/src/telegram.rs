@@ -15,9 +15,11 @@ use std::time::Duration;
 pub async fn run_telegram_bot(
     provider: &str,
     api_key: Option<&str>,
+    base_url: Option<&str>,
     model: &str,
     token: &str,
     system_prompt: Option<&str>,
+    max_turns: usize,
 ) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
 
@@ -111,13 +113,13 @@ pub async fn run_telegram_bot(
                             match run_turn(
                                 provider,
                                 api_key,
-                                None,
+                                base_url,
                                 model,
                                 &mut conversation,
                                 text,
                                 &registry,
                                 system_prompt,
-                                10,
+                                max_turns,
                             )
                             .await
                             {
