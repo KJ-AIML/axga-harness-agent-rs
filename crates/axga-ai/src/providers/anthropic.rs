@@ -99,6 +99,7 @@ impl AnthropicProvider {
         Ok(Box::pin(SseStream {
             inner: response.bytes_stream(),
             buffer: String::with_capacity(4096),
+            pending: std::collections::VecDeque::new(),
             done: false,
         }))
     }

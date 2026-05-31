@@ -1,11 +1,11 @@
-//! Agent loop — the main runtime tying LLM, tools, and conversation state.
+//! Agent loop - the main runtime tying LLM, tools, and conversation state.
 //!
 //! # Flow
-//! 1. User prompt → push to Conversation
+//! 1. User prompt -> push to Conversation
 //! 2. Build OpenAI/Anthropic request from conversation history
-//! 3. Stream LLM response → collect text + tool calls
-//! 4. If tool calls → execute via ToolRegistry → push results → loop
-//! 5. If no tool calls → done, return final text
+//! 3. Stream LLM response -> collect text + tool calls
+//! 4. If tool calls -> execute via ToolRegistry -> push results -> loop
+//! 5. If no tool calls -> done, return final text
 //!
 //! # Memory
 //! - Each loop iteration yields a Collector that drains the stream without buffering.
@@ -28,7 +28,7 @@ pub struct TurnResult {
     pub total_tokens: u32,
 }
 
-/// Run a single turn of the agent: user input → LLM → tools → loop → final response.
+/// Run a single turn of the agent: user input -> LLM -> tools -> loop -> final response.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_turn(
     provider_type: &str,
@@ -121,7 +121,7 @@ pub async fn run_turn(
             final_text = text.clone();
         }
 
-        // No tool calls → turn is done
+        // No tool calls: turn is done.
         if tool_calls.is_empty() {
             conversation.push(AgentMessage::Assistant {
                 content: AssistantContent {
@@ -133,14 +133,14 @@ pub async fn run_turn(
             break;
         }
 
-        // Execute tool calls — filter empty IDs
+        // Execute tool calls after filtering empty IDs.
         let valid_tool_calls: Vec<ToolCall> = tool_calls
             .into_iter()
             .filter(|tc| !tc.id.is_empty() && !tc.name.is_empty())
             .collect();
 
         if valid_tool_calls.is_empty() {
-            // No valid tool calls — treat as text-only response
+            // No valid tool calls: treat as text-only response.
             conversation.push(AgentMessage::Assistant {
                 content: AssistantContent {
                     text: Some(text),
@@ -191,8 +191,11 @@ where
     S: Stream<Item = AxgaResult<StreamEvent>> + Unpin,
 {
     let mut text = String::new();
-    let mut tool_calls: Vec<ToolCall> = Vec::new();
-    let mut current_tc: Option<ToolCall> = None;
+    let mut tool_call_parts: std::collections::HashMap<usize, ToolCallParts> =
+        std::collections::HashMap::new();
+    let mut tool_call_order: Vec<usize> = Vec::new();
+    let mut last_tool_call_key: Option<usize> = None;
+    let mut next_fallback_key: usize = 0;
     let mut tokens: u32 = 0;
 
     while let Some(event) = stream.next().await {
@@ -201,32 +204,30 @@ where
                 text.push_str(&t);
             }
             StreamEvent::ToolCallDelta {
+                index,
                 id,
                 name,
                 args_fragment,
             } => {
-                if id.is_empty() {
-                    // ID hasn't arrived yet — merge args into current
-                    if let Some(ref mut tc) = current_tc {
-                        if let serde_json::Value::String(ref mut existing) = tc.arguments {
-                            existing.push_str(&name);
-                            existing.push_str(&args_fragment);
-                        }
-                    }
-                } else if current_tc.as_ref().is_none_or(|tc| tc.id != id) {
-                    if let Some(tc) = current_tc.take() {
-                        tool_calls.push(tc);
-                    }
-                    current_tc = Some(ToolCall {
-                        id,
-                        name,
-                        arguments: serde_json::Value::String(args_fragment),
-                    });
-                } else if let Some(ref mut tc) = current_tc {
-                    if let serde_json::Value::String(ref mut existing) = tc.arguments {
-                        existing.push_str(&args_fragment);
-                    }
+                let key = resolve_tool_call_key(
+                    index,
+                    &id,
+                    &tool_call_parts,
+                    last_tool_call_key,
+                    &mut next_fallback_key,
+                );
+                let parts = tool_call_parts.entry(key).or_insert_with(|| {
+                    tool_call_order.push(key);
+                    ToolCallParts::default()
+                });
+                if !id.is_empty() {
+                    parts.id = id;
                 }
+                if !name.is_empty() {
+                    parts.name = name;
+                }
+                parts.args.push_str(&args_fragment);
+                last_tool_call_key = Some(key);
             }
             StreamEvent::ThinkingDelta { .. } => {}
             StreamEvent::Usage {
@@ -246,38 +247,154 @@ where
         }
     }
 
-    // Finalize last tool call — validate before using
-    if let Some(tc) = current_tc.take() {
-        if !tc.id.is_empty() && !tc.name.is_empty() {
-            if let serde_json::Value::String(ref args_str) = tc.arguments {
-                let parsed: serde_json::Value =
-                    serde_json::from_str(args_str).unwrap_or(tc.arguments.clone());
-                tool_calls.push(ToolCall {
-                    id: tc.id,
-                    name: tc.name,
-                    arguments: parsed,
-                });
-            } else {
-                tool_calls.push(tc);
-            }
+    let mut tool_calls = Vec::with_capacity(tool_call_order.len());
+    let mut invalid_count = 0usize;
+    for key in tool_call_order {
+        let Some(parts) = tool_call_parts.remove(&key) else {
+            continue;
+        };
+        match parts.into_tool_call() {
+            Some(tool_call) => tool_calls.push(tool_call),
+            None => invalid_count += 1,
         }
     }
 
-    // Filter: only keep tool calls with valid ids and names
-    let valid_count = tool_calls
-        .iter()
-        .filter(|tc| !tc.id.is_empty() && !tc.name.is_empty())
-        .count();
-    if valid_count < tool_calls.len() {
+    if invalid_count > 0 {
         tracing::warn!(
-            total = tool_calls.len(),
-            valid = valid_count,
+            invalid = invalid_count,
+            valid = tool_calls.len(),
             "some tool calls had empty ids, filtering"
         );
-        tool_calls.retain(|tc| !tc.id.is_empty() && !tc.name.is_empty());
     }
 
     Ok((text, tool_calls, tokens))
+}
+
+#[derive(Default)]
+struct ToolCallParts {
+    id: String,
+    name: String,
+    args: String,
+}
+
+impl ToolCallParts {
+    fn into_tool_call(self) -> Option<ToolCall> {
+        if self.id.is_empty() || self.name.is_empty() {
+            return None;
+        }
+
+        let arguments = if self.args.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str(&self.args).unwrap_or(serde_json::Value::String(self.args))
+        };
+
+        Some(ToolCall {
+            id: self.id,
+            name: self.name,
+            arguments,
+        })
+    }
+}
+
+fn resolve_tool_call_key(
+    index: Option<usize>,
+    id: &str,
+    calls: &std::collections::HashMap<usize, ToolCallParts>,
+    last_key: Option<usize>,
+    next_fallback_key: &mut usize,
+) -> usize {
+    if let Some(index) = index {
+        return index;
+    }
+
+    if !id.is_empty() {
+        if let Some((key, _)) = calls.iter().find(|(_, parts)| parts.id == id) {
+            return *key;
+        }
+        let key = *next_fallback_key;
+        *next_fallback_key += 1;
+        return key;
+    }
+
+    if let Some(last_key) = last_key {
+        return last_key;
+    }
+
+    let key = *next_fallback_key;
+    *next_fallback_key += 1;
+    key
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::stream;
+
+    #[tokio::test]
+    async fn collect_stream_assembles_interleaved_openai_tool_calls() {
+        let events: Vec<AxgaResult<StreamEvent>> = vec![
+            Ok(StreamEvent::TextDelta {
+                text: "working".into(),
+            }),
+            Ok(StreamEvent::ToolCallDelta {
+                index: Some(0),
+                id: "call_a".into(),
+                name: "read_file".into(),
+                args_fragment: "{\"path\":".into(),
+            }),
+            Ok(StreamEvent::ToolCallDelta {
+                index: Some(1),
+                id: "call_b".into(),
+                name: "list_directory".into(),
+                args_fragment: "{\"path\":\"src\"}".into(),
+            }),
+            Ok(StreamEvent::ToolCallDelta {
+                index: Some(0),
+                id: String::new(),
+                name: String::new(),
+                args_fragment: "\"README.md\"}".into(),
+            }),
+            Ok(StreamEvent::Done),
+        ];
+
+        let (text, calls, _) = collect_stream(stream::iter(events)).await.unwrap();
+
+        assert_eq!(text, "working");
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id, "call_a");
+        assert_eq!(calls[0].name, "read_file");
+        assert_eq!(calls[0].arguments["path"], "README.md");
+        assert_eq!(calls[1].id, "call_b");
+        assert_eq!(calls[1].name, "list_directory");
+        assert_eq!(calls[1].arguments["path"], "src");
+    }
+
+    #[tokio::test]
+    async fn collect_stream_assembles_anthropic_tool_use_delta() {
+        let events: Vec<AxgaResult<StreamEvent>> = vec![
+            Ok(StreamEvent::ToolCallDelta {
+                index: Some(1),
+                id: "toolu_1".into(),
+                name: "read_file".into(),
+                args_fragment: String::new(),
+            }),
+            Ok(StreamEvent::ToolCallDelta {
+                index: Some(1),
+                id: String::new(),
+                name: String::new(),
+                args_fragment: "{\"path\":\"Cargo.toml\"}".into(),
+            }),
+            Ok(StreamEvent::Done),
+        ];
+
+        let (_, calls, _) = collect_stream(stream::iter(events)).await.unwrap();
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "toolu_1");
+        assert_eq!(calls[0].name, "read_file");
+        assert_eq!(calls[0].arguments["path"], "Cargo.toml");
+    }
 }
 
 fn truncate(s: &str, max_len: usize) -> String {

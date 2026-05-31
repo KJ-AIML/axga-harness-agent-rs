@@ -78,6 +78,7 @@ pub enum StreamEvent {
         text: String,
     },
     ToolCallDelta {
+        index: Option<usize>,
         id: String,
         name: String,
         args_fragment: String,
