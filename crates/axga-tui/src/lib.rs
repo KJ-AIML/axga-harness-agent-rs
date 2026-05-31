@@ -1,22 +1,11 @@
-//! `axga-tui` — Terminal UI using ratatui + crossterm.
+//! `axga-tui` — Beautiful terminal UI with theme system.
 //!
-//! # Layout (Phase 3)
-//! ```text
-//! ┌──────────────────────────────────────┐
-//! │  Chat History                        │
-//! │                                      │
-//! │  User: ...                           │
-//! │  Assistant: ...                      │
-//! │                                      │
-//! ├──────────────────────────────────────┤
-//! │  Status Bar: [model] [tokens] [mem]  │
-//! ├──────────────────────────────────────┤
-//! │  > user input here                   │
-//! └──────────────────────────────────────┘
-//! ```
+//! Inspired by kimi-code's TUI architecture:
+//! - Semantic color tokens (dark/light)
+//! - Gutter-aligned layout
+//! - Component-based rendering
+//! - Progressive disclosure
 
 pub mod app;
 pub mod events;
-pub mod ui;
-
-pub use app::App;
+pub mod theme;

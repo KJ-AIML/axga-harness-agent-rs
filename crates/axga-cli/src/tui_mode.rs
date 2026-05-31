@@ -1,11 +1,10 @@
-//! axga TUI mode — ratatui-powered interactive terminal.
+//! axga TUI mode — beautiful terminal interface.
 //!
-//! Launched when no --prompt is given. Full ratatui app with:
-//! - Chat pane (conversation history)
-//! - Status bar (model, tokens, memory)
-//! - Input pane with Insert/Normal/Command modes
+//! Layout: Status bar | Chat with bullets | Border-decorated input
+//! Theme: Semantic color tokens, dark mode by default
 
-use axga_tui::app::{App, InputMode};
+use axga_tui::app::{App, ChatLine, InputMode};
+use axga_tui::theme;
 use axga_core::{Conversation, ToolRegistry, run_turn};
 use axga_core::tools::{fs, shell, code};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
@@ -19,7 +18,6 @@ pub async fn run_tui(
     system_prompt: Option<&str>,
     max_turns: usize,
 ) -> anyhow::Result<()> {
-    // ── Setup ──
     let mut registry = ToolRegistry::new();
     registry.register(fs::ReadFileTool)?;
     registry.register(fs::WriteFileTool)?;
@@ -31,35 +29,33 @@ pub async fn run_tui(
 
     let mut conversation = Conversation::new();
     let mut terminal = ratatui::init();
-    let mut app = App::new(model);
+    let th = theme::dark_theme();
+    let mut app = App::new(model, th);
 
-    app.chat_lines.push("AXGA TUI — type your prompt and press Enter.".into());
-    app.chat_lines.push(format!("Provider: {}, Model: {}", provider, model).into());
-    app.chat_lines.push(String::new());
+    // Welcome
+    app.chat_lines.push(ChatLine::Info(format!("axga v{} — {} / {}", env!("CARGO_PKG_VERSION"), provider, model)));
+    app.chat_lines.push(ChatLine::Info("Type a message, press Enter. i=insert  Esc=normal  :q=quit  :tools=list".into()));
+    app.chat_lines.push(ChatLine::Spacer);
 
-    let result = tui_loop(
-        &mut terminal,
-        &mut app,
-        provider,
-        api_key,
-        base_url,
-        model,
-        system_prompt,
-        max_turns,
-        &mut registry,
-        &mut conversation,
-    )
-    .await;
-
-    ratatui::restore();
-
-    match result {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            Ok(())
+    // Git branch detection
+    if let Ok(output) = std::process::Command::new("git").args(["branch", "--show-current"]).output() {
+        if output.status.success() {
+            let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !branch.is_empty() {
+                app.status.git_branch = Some(branch);
+            }
         }
     }
+
+    let result = tui_loop(
+        &mut terminal, &mut app,
+        provider, api_key, base_url, model,
+        system_prompt, max_turns,
+        &mut registry, &mut conversation,
+    ).await;
+
+    ratatui::restore();
+    result.map_err(|e| anyhow::anyhow!("{}", e))
 }
 
 async fn tui_loop(
@@ -74,23 +70,34 @@ async fn tui_loop(
     registry: &mut ToolRegistry,
     conversation: &mut Conversation,
 ) -> anyhow::Result<()> {
+    let mut spinner_tick: usize = 0;
+
     loop {
+        app.spinner_idx = spinner_tick;
+        spinner_tick = spinner_tick.wrapping_add(1);
+
         terminal.draw(|f| app.render(f))?;
 
         if app.exit {
             break;
         }
 
-        // Non-blocking event poll (100ms timeout for smooth rendering)
+        // Poll for events (100ms tick for spinner animation)
         if event::poll(std::time::Duration::from_millis(100))? {
             let ev = event::read()?;
 
             match ev {
                 Event::Key(key) => {
-                    // Global: Ctrl+C exits
+                    // Global: Ctrl+C → quit (press twice if streaming)
                     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                        app.exit = true;
-                        break;
+                        if app.is_streaming {
+                            app.chat_lines.push(ChatLine::Info("Press Ctrl+C again to force quit".into()));
+                            app.is_streaming = false;
+                        } else {
+                            app.exit = true;
+                            break;
+                        }
+                        continue;
                     }
 
                     match app.mode {
@@ -99,58 +106,75 @@ async fn tui_loop(
                                 KeyCode::Esc => app.mode = InputMode::Normal,
                                 KeyCode::Enter => {
                                     let input = std::mem::take(&mut app.input);
-                                    if input.trim().is_empty() {
-                                        continue;
-                                    }
-                                    app.chat_lines.push(format!("> {}", input));
+                                    app.cursor_pos = 0;
+                                    if input.trim().is_empty() { continue; }
 
-                                    // Run the agent
-                                    app.status.model = format!("{} (thinking...)", model);
+                                    // Push user message
+                                    app.chat_lines.push(ChatLine::User(input.clone()));
+
+                                    // Show spinner
+                                    app.is_streaming = true;
+                                    app.chat_lines.push(ChatLine::Thinking("thinking...".into()));
                                     terminal.draw(|f| app.render(f))?;
 
-                                    match run_turn(
-                                        provider,
-                                        api_key,
-                                        base_url,
-                                        model,
-                                        conversation,
-                                        &input,
-                                        registry,
-                                        system_prompt,
-                                        max_turns,
-                                    )
-                                    .await
+                                    // Run agent
+                                    match run_turn(provider, api_key, base_url, model,
+                                        conversation, &input, registry, system_prompt, max_turns).await
                                     {
                                         Ok(turn) => {
-                                            if !turn.final_text.is_empty() {
-                                                for line in turn.final_text.lines() {
-                                                    app.chat_lines.push(line.to_string());
+                                            // Remove spinner
+                                            app.chat_lines.pop();
+                                            app.is_streaming = false;
+
+                                            // Show tool calls
+                                            if !turn.tool_calls_made.is_empty() {
+                                                for tc in &turn.tool_calls_made {
+                                                    app.chat_lines.push(ChatLine::Tool {
+                                                        name: tc.clone(),
+                                                        detail: "executed".into(),
+                                                    });
                                                 }
                                             }
-                                            if !turn.tool_calls_made.is_empty() {
-                                                app.chat_lines.push(format!(
-                                                    "  [tools: {}]",
-                                                    turn.tool_calls_made.join(", ")
-                                                ));
+
+                                            // Show response
+                                            if !turn.final_text.is_empty() {
+                                                app.chat_lines.push(ChatLine::Assistant(turn.final_text));
                                             }
-                                            app.status.tokens_used = turn.total_tokens;
+
+                                            app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                         }
                                         Err(e) => {
-                                            app.chat_lines.push(format!("Error: {}", e));
+                                            app.chat_lines.pop();
+                                            app.is_streaming = false;
+                                            app.chat_lines.push(ChatLine::Error(format!("{}", e)));
                                         }
                                     }
 
-                                    app.status.model = model.to_string();
-                                    // Scroll to bottom
-                                    if app.chat_lines.len() > 3 {
-                                        app.scroll_offset = (app.chat_lines.len() - 3) as u16;
-                                    }
+                                    app.chat_lines.push(ChatLine::Spacer);
+                                    app.scroll_offset = u16::MAX;
                                 }
                                 KeyCode::Backspace => {
-                                    app.input.pop();
+                                    if app.cursor_pos > 0 {
+                                        app.input.remove(app.cursor_pos - 1);
+                                        app.cursor_pos -= 1;
+                                    }
                                 }
+                                KeyCode::Delete => {
+                                    if app.cursor_pos < app.input.len() {
+                                        app.input.remove(app.cursor_pos);
+                                    }
+                                }
+                                KeyCode::Left => {
+                                    if app.cursor_pos > 0 { app.cursor_pos -= 1; }
+                                }
+                                KeyCode::Right => {
+                                    if app.cursor_pos < app.input.len() { app.cursor_pos += 1; }
+                                }
+                                KeyCode::Home => app.cursor_pos = 0,
+                                KeyCode::End => app.cursor_pos = app.input.len(),
                                 KeyCode::Char(c) => {
-                                    app.input.push(c);
+                                    app.input.insert(app.cursor_pos, c);
+                                    app.cursor_pos += 1;
                                 }
                                 _ => {}
                             }
@@ -158,18 +182,58 @@ async fn tui_loop(
                         InputMode::Normal => {
                             match key.code {
                                 KeyCode::Char('i') => app.mode = InputMode::Insert,
+                                KeyCode::Char('a') => {
+                                    app.mode = InputMode::Insert;
+                                    app.cursor_pos = app.cursor_pos.saturating_add(1).min(app.input.len());
+                                }
                                 KeyCode::Char(':') => {
                                     app.mode = InputMode::Command;
+                                    app.input.clear();
                                     app.input.push(':');
+                                    app.cursor_pos = 1;
                                 }
                                 KeyCode::Char('q') => app.exit = true,
+                                KeyCode::Char('G') => app.scroll_offset = u16::MAX,
                                 KeyCode::Up | KeyCode::Char('k') => {
-                                    if app.scroll_offset > 0 {
-                                        app.scroll_offset -= 1;
-                                    }
+                                    app.scroll_offset = app.scroll_offset.saturating_sub(1);
                                 }
                                 KeyCode::Down | KeyCode::Char('j') => {
-                                    app.scroll_offset += 1;
+                                    app.scroll_offset = app.scroll_offset.saturating_add(1);
+                                }
+                                KeyCode::Enter => {
+                                    // Submit from normal mode
+                                    let input = std::mem::take(&mut app.input);
+                                    if !input.trim().is_empty() {
+                                        app.chat_lines.push(ChatLine::User(input.clone()));
+                                        app.is_streaming = true;
+                                        app.chat_lines.push(ChatLine::Thinking("thinking...".into()));
+                                        terminal.draw(|f| app.render(f))?;
+
+                                        match run_turn(provider, api_key, base_url, model,
+                                            conversation, &input, registry, system_prompt, max_turns).await
+                                        {
+                                            Ok(turn) => {
+                                                app.chat_lines.pop();
+                                                app.is_streaming = false;
+                                                if !turn.tool_calls_made.is_empty() {
+                                                    for tc in &turn.tool_calls_made {
+                                                        app.chat_lines.push(ChatLine::Tool { name: tc.clone(), detail: "executed".into() });
+                                                    }
+                                                }
+                                                if !turn.final_text.is_empty() {
+                                                    app.chat_lines.push(ChatLine::Assistant(turn.final_text));
+                                                }
+                                                app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                            }
+                                            Err(e) => {
+                                                app.chat_lines.pop();
+                                                app.is_streaming = false;
+                                                app.chat_lines.push(ChatLine::Error(format!("{}", e)));
+                                            }
+                                        }
+                                        app.chat_lines.push(ChatLine::Spacer);
+                                        app.scroll_offset = u16::MAX;
+                                    }
                                 }
                                 _ => {}
                             }
@@ -179,39 +243,48 @@ async fn tui_loop(
                                 KeyCode::Esc => {
                                     app.mode = InputMode::Normal;
                                     app.input.clear();
+                                    app.cursor_pos = 0;
                                 }
                                 KeyCode::Enter => {
                                     let cmd = std::mem::take(&mut app.input);
-                                    let cmd = cmd.strip_prefix(':').unwrap_or(&cmd).trim();
-                                    match cmd {
+                                    let cmd_clean = cmd.strip_prefix(':').unwrap_or(&cmd).trim();
+                                    match cmd_clean {
                                         "q" | "quit" => app.exit = true,
                                         "clear" => {
                                             conversation.reset();
                                             app.chat_lines.clear();
-                                            app.chat_lines.push("Conversation cleared.".into());
+                                            app.chat_lines.push(ChatLine::Info("Conversation cleared.".into()));
                                         }
                                         "tools" => {
+                                            app.chat_lines.push(ChatLine::Info("Available tools:".into()));
                                             for name in registry.names() {
                                                 if let Some(tool) = registry.get(name) {
-                                                    app.chat_lines.push(format!(
-                                                        "  {} — {}",
-                                                        tool.name(),
-                                                        tool.description()
-                                                    ));
+                                                    app.chat_lines.push(ChatLine::Info(format!(
+                                                        "  {} — {}", tool.name(), tool.description()
+                                                    )));
                                                 }
                                             }
                                         }
+                                        "history" => {
+                                            app.chat_lines.push(ChatLine::Info(format!(
+                                                "{} messages, {} turns", conversation.len(), conversation.turn_count()
+                                            )));
+                                        }
                                         _ => {
-                                            app.chat_lines.push(format!("Unknown command: {}", cmd));
+                                            app.chat_lines.push(ChatLine::Error(format!("Unknown: {}", cmd_clean)));
                                         }
                                     }
                                     app.mode = InputMode::Normal;
                                 }
                                 KeyCode::Backspace => {
-                                    app.input.pop();
+                                    if app.cursor_pos > 0 {
+                                        app.input.remove(app.cursor_pos - 1);
+                                        app.cursor_pos -= 1;
+                                    }
                                 }
                                 KeyCode::Char(c) => {
-                                    app.input.push(c);
+                                    app.input.insert(app.cursor_pos, c);
+                                    app.cursor_pos += 1;
                                 }
                                 _ => {}
                             }
