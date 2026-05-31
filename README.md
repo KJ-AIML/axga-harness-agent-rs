@@ -1,205 +1,81 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/rust-1.88+-orange.svg" alt="Rust 1.88+">
-  <img src="https://img.shields.io/badge/memory-<18MB-green.svg" alt="Memory <18MB">
-  <img src="https://img.shields.io/badge/binary-4.7MB-blue.svg" alt="Binary 4.7MB">
-  <img src="https://img.shields.io/badge/license-MIT-purple.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/tools-10-cyan.svg" alt="10 Tools">
-  <img src="https://img.shields.io/badge/providers-6%20providers-red.svg" alt="Providers">
-</p>
+# AXGA Harness Agent (Rust)
 
-<h1 align="center">⚡ AXGA</h1>
-<p align="center"><strong>AI Coding Agent — 4.7MB binary, 18MB RAM, runs anywhere.</strong></p>
+Rust 2024 AI coding agent built for small VPS deployments. The current MSRV is **Rust 1.88**, matching `Cargo.toml`, `rust-toolchain.toml`, and CI.
 
-<p align="center">
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#features">Features</a> •
-  <a href="#tools">Tools</a> •
-  <a href="#telegram-bot">Telegram Bot</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#benchmarks">Benchmarks</a>
-</p>
+AXGA can run as:
 
----
+- a single-shot CLI
+- an interactive ratatui TUI
+- a Telegram bot
+- a spawned sub-agent process
 
-## What is AXGA?
-
-AXGA is a **production-grade AI coding agent** written in Rust. It runs in your terminal as a TUI, as a single-shot CLI, or as a Telegram bot. It supports OpenAI, DeepSeek, Anthropic, OpenRouter, Groq, and Ollama/local providers, and gives the model access to real tools: filesystem, shell, web search, and memory.
-
-> **4.7 MB binary. 18 MB RAM. Zero glibc dependency. Fits on a 1GB VPS with room to spare.**
-
-<table>
-<tr><td width="50%">
-
-### TUI Mode
-```
-┌─ AXGA ────────────────────────────────────┐
-│  ✦  Can you check my server RAM?           │
-│  ⚙  execute_shell → free -h                │
-│  ●  Your server has 894 MiB total,         │
-│     376 MiB used, 517 MiB available.       │
-│                                            │
-│  ✦  Search for Rust async patterns         │
-│  ⚙  web_search → "Rust async patterns"      │
-│  ●  Top results from DuckDuckGo...         │
-├────────────────────────────────────────────┤
-│  > type your message...           [INSERT] │
-└────────────────────────────────────────────┘
-```
-
-</td><td width="50%">
-
-### Telegram Bot
-```
-🤖 @Axga_axtlbot is running
-
-Sminvl: What's the weather?
-Bot:     Let me search for you...
-         ⚙ web_search → "weather today"
-
-Sminvl: Remember I'm a founder
-Bot:     ⚙ memctrl add "Sminvl is a founder"
-         Got it! Stored in project memory.
-
-Sminvl: Who am I?
-Bot:     ⚙ memctrl query "who is Sminvl"
-         You are Sminvl — a founder.
-```
-
-</td></tr>
-</table>
-
----
+The primary design target is low memory use on a 1GB VPS: **under 100 MB typical RSS and under 150 MB peak** for normal workflows.
 
 ## Quick Start
 
 ```bash
-# One-line install
-curl -fsSL https://raw.githubusercontent.com/KJ-AIML/axga-harness-agent-rs/master/install.sh | sudo sh
+# install/build from source
+cargo build --release
 
-# Set your API key
-export DEEPSEEK_API_KEY="sk-..."
+# first-run setup; validates provider credentials and can save Telegram config
+axga --onboard
 
-# List provider defaults
+# list supported providers and default models
 axga models
 
-# Launch TUI (model defaults to the provider recommendation)
-axga --provider deepseek
-
-# Single-shot
+# single-shot prompt
 axga --provider deepseek --prompt "explain Rust ownership"
 
-# Local OpenAI-compatible provider
-axga --provider ollama --prompt "explain Rust ownership"
+# TUI mode; saved config is used when flags are omitted
+axga
 
-# Telegram bot
-axga --telegram --key "YOUR_BOT_TOKEN" --provider deepseek --model deepseek-chat
-
-# Spawn sub-agent
-axga --spawn "write unit tests for all modules"
+# Telegram mode; uses saved [telegram] token or --key
+axga --telegram
 ```
 
----
+## Providers
 
-## Features
+Provider config is registry-backed in `axga-core`, so CLI, TUI, and Telegram use the same defaults and API-key resolution.
 
-| | |
-|---|---|
-| 🖥️ **TUI** | Full ratatui terminal interface with scrollbar, markdown, vim keys, 14 slash commands |
-| 🤖 **Telegram Bot** | Long-polling bot with full tool access, typing indicators, markdown |
-| 🧠 **MemCtrl Memory** | Persistent project memory — store facts, query with provenance |
-| 🔧 **10 Built-in Tools** | Filesystem, shell, grep, glob, diff, web search, URL fetch, memory |
-| 🚀 **6 Providers** | OpenAI, DeepSeek, Anthropic, OpenRouter, Groq, Ollama/local; swap with `--provider` |
-| 💾 **Session Persistence** | JSONL save/load, resume conversations |
-| ⚡ **Retry & Backoff** | Exponential backoff on 429/5xx, graceful degradation |
-| 📦 **4.7 MB Binary** | Musl static build, no glibc, no runtime deps |
-| 🔒 **Memory Safe** | Rust + mimalloc, 18MB RSS under full tool load |
-| 🐳 **Docker** | 2-stage Alpine build, `docker run -e KEY=... axga` |
-| 🔌 **Systemd** | Auto-start service included |
+| Provider | API style | Env var | Default base URL | Default model |
+|---|---|---|---|---|
+| `openai` | OpenAI-compatible | `OPENAI_API_KEY` | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| `deepseek` | OpenAI-compatible | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| `anthropic` | Native Anthropic | `ANTHROPIC_API_KEY` | native endpoint | `claude-sonnet-4-20250514` |
+| `openrouter` | OpenAI-compatible | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| `groq` | OpenAI-compatible | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| `ollama` | OpenAI-compatible local | none | `http://localhost:11434/v1` | `llama3.2` |
 
----
-
-## Tools
-
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read files (1MB cap, streaming for large files) |
-| `write_file` | Write/create files with auto parent directory creation |
-| `list_directory` | List directory contents |
-| `execute_shell` | Run shell commands (60s timeout, cross-platform) |
-| `grep` | Regex search across files |
-| `glob` | Find files by pattern |
-| `diff` | Line-by-line diff between files |
-| `memctrl` | **Memory layer** — store/query/forget facts with confidence tracking |
-| `web_search` | DuckDuckGo web search (no API key required) |
-| `fetch_url` | Fetch and extract text from any URL |
-
----
-
-## TUI Commands
-
-| `/help` | `/status` | `/usage` | `/compact` |
-| `/tools` | `/history` | `/export <file>` | `/title <text>` |
-| `/clear` | `/quit` | `/version` | |
-
-**Keys:** `↑↓` scroll • `Esc` normal mode • `i` insert mode • `j/k` vim scroll • `G` bottom • `Ctrl+C` quit
-
----
-
-## Architecture
-
-```
-axga-shared (types, errors, memory limits)
-  ├── axga-ai (LLM providers: OpenAI-compatible and native Anthropic SSE streaming)
-  │     └── axga-core (agent loop, tool registry, conversation state)
-  │           └── axga-cli (binary entry: TUI, Telegram, single-shot, spawn)
-  └── axga-tui (ratatui app: theme, markdown, scrollbar, events)
-        └── axga-cli
-```
-
-**Memory model:**
-| Component | Typical | Peak |
-|-----------|---------|------|
-| Binary + tokio | 5 MB | 8 MB |
-| Conversation (20 turns) | 10 MB | 40 MB |
-| HTTP + TLS | 8 MB | 15 MB |
-| TUI frame buffer | 2 MB | 5 MB |
-| Tool output buffers | 5 MB | 20 MB |
-| **Total** | **~18 MB** | **~88 MB** |
-
----
-
-## Benchmarks
-
-| Test | RSS |
-|------|-----|
-| `axga --version` | 6.0 MB |
-| Simple prompt | 11.6 MB |
-| File read (500KB) | 15.6 MB |
-| Shell execution | 13.6 MB |
-| Multi-tool (3 tools) | 13.6 MB |
-| **Telegram bot idle** | **17.6 MB** |
-
-All well under the 100MB budget. Peak 18MB under full tool load on a 1GB VPS.
-
----
+Use `--base-url` for a custom OpenAI-compatible endpoint.
 
 ## Configuration
 
-Create `~/.config/axga/config.toml`:
+Run onboarding for the common path:
+
+```bash
+axga --onboard
+axga --onboard --telegram --key "YOUR_BOT_TOKEN"
+```
+
+Onboarding writes `~/.config/axga/config.toml`, validates provider credentials before saving, and validates Telegram tokens with `getMe`.
+
+Example config:
 
 ```toml
 [provider]
 provider_type = "deepseek"
 model = "deepseek-chat"
+base_url = "https://api.deepseek.com/v1"
 system_prompt = "You are a helpful coding assistant."
 max_turns = 10
+
+[telegram]
+token = "YOUR_BOT_TOKEN"
+allowed_users = [123456789]
 
 [session]
 dir = "~/.config/axga/sessions"
 auto_save = true
-
-[telegram]
-token = "YOUR_BOT_TOKEN"
 
 [tools]
 web_search = true
@@ -211,37 +87,85 @@ enabled = true
 memctrl_path = "memctrl"
 ```
 
----
+`axga config` shows saved config state without printing API keys or bot tokens. Explicit CLI flags override saved config.
 
-## Docker
+## Telegram Mode
 
-```bash
-docker build -t axga .
-docker run -e DEEPSEEK_API_KEY="sk-..." axga --provider deepseek --model deepseek-chat --prompt "hello"
-docker run -e DEEPSEEK_API_KEY="sk-..." axga --telegram --key "BOT_TOKEN" --provider deepseek
+Telegram mode is designed for multi-user safety:
+
+- each chat has isolated bounded conversation state
+- active chat state is capped
+- `allowed_users` is enforced when configured
+- replies are plain text, not Markdown-formatted model output
+- long replies are split into Telegram-safe chunks
+- `/help`, `/reset`, and `/status` are available
+
+## Tools
+
+| Tool | Description |
+|---|---|
+| `read_file` | Read files with the configured size cap |
+| `write_file` | Write files and create parent directories |
+| `list_directory` | List directory contents |
+| `execute_shell` | Run shell commands with timeout handling |
+| `grep` | Regex search across bounded files |
+| `glob` | Find files by pattern |
+| `diff` | Line-by-line diff for bounded files |
+| `memctrl` | Store, query, and forget project memory facts |
+| `web_search` | DuckDuckGo web search |
+| `fetch_url` | Fetch and extract bounded URL text |
+
+## Workspace
+
+```text
+axga-shared  -> shared types, errors, and limits
+axga-ai      -> provider HTTP/SSE clients
+axga-core    -> agent loop, tools, config, provider registry
+axga-tui     -> ratatui UI
+axga-cli     -> binary entry for CLI, TUI, Telegram, spawn
 ```
 
----
+## Memory Policy
+
+The memory target is a design constraint, not a blanket proof over every allocation. The code currently enforces the highest-risk paths:
+
+- bounded local file reads before loading content
+- bounded HTTP response collection for non-streaming fetches
+- streaming LLM SSE parsing
+- bounded conversation history with summarization
+- capped Telegram chat conversations
+- small Tokio runtime: 2 worker threads, 4 blocking threads, 512 KB stack per worker
+- release profile optimized for size: `opt-level=s`, LTO, `strip=true`, `panic=abort`
+
+Known exceptions: some command output and serialization paths still allocate complete strings after upstream size checks. Treat new unbounded buffers as bugs unless there is a documented reason.
+
+## Status
+
+| Phase | Status | Current state |
+|---|---|---|
+| 0: Foundation | Done | Workspace, shared types, ADRs, memory limits |
+| 1: LLM plumbing | Done | OpenAI-compatible and Anthropic streaming, SSE tool-call parsing |
+| 2: Agent runtime | Done | Tool registry, shell/fs/code/web/memory tools, conversation state |
+| 3: TUI integration | Done | Ratatui app, keyboard modes, slash commands |
+| 4: Provider/config | Done | Registry-backed providers, onboarding, saved config |
+| 5: Hardening | In progress | Telegram hardened; memory profiling and stress tests still useful |
+| 6: Deployment | Partial | CI and release scripts exist; install/package flow still needs validation |
 
 ## Development
 
 ```bash
-git clone https://github.com/KJ-AIML/axga-harness-agent-rs
-cd axga-harness-agent-rs
-cargo build --release
-cargo test --all
 cargo fmt --check
+cargo test --all
 cargo clippy -- -D warnings
+cargo build --release
 ```
 
----
+Release build:
+
+```bash
+scripts/build-release.sh
+```
 
 ## License
 
-MIT © AXGA Contributors
-
----
-
-<p align="center">
-  <sub>Built with 🦀 Rust • Powered by DeepSeek • Runs on 1GB VPS</sub>
-</p>
+MIT

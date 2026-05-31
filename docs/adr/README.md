@@ -41,7 +41,7 @@ Format: date, decision, rationale, alternatives considered, consequences.
 
 **Decision.** Use `tokio` multi-thread runtime with exactly 2 worker threads.
 
-**Rationale.** The target VPS has 1–2 vCPUs. The default tokio thread pool (`num_cpus`) would spawn unnecessary threads that each consume 2MB+ stack space. 2 threads gives enough parallelism for concurrent tool execution + TUI event loop without wasting memory.
+**Rationale.** The target VPS has 1-2 vCPUs. The default tokio thread pool (`num_cpus`) would spawn unnecessary threads and larger default stacks. AXGA uses 2 worker threads and a 512 KB worker stack to keep idle/runtime memory predictable while retaining enough parallelism for concurrent tool execution and the TUI event loop.
 
 **Consequences.** `tokio::spawn` must be used sparingly. Long CPU-bound work should be offloaded to `spawn_blocking` (max 4 blocking threads).
 
