@@ -7,6 +7,7 @@ pub mod registry;
 pub mod fs;
 pub mod shell;
 pub mod code;
+pub mod memctrl;
 
 use axga_shared::error::AxgaResult;
 use serde_json::Value;
