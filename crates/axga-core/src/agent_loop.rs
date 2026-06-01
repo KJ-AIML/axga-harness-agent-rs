@@ -129,25 +129,36 @@ pub async fn run_turn(
             break;
         }
 
-        // Execute tool calls
-        let results = execute_tool_calls(tools, &tool_calls).await?;
+        // Execute tool calls — filter empty IDs
+        let valid_tool_calls: Vec<ToolCall> = tool_calls
+            .into_iter()
+            .filter(|tc| !tc.id.is_empty() && !tc.name.is_empty())
+            .collect();
 
-        // Record tool calls
-        for tc in &tool_calls {
+        if valid_tool_calls.is_empty() {
+            // No valid tool calls — treat as text-only response
+            conversation.push(AgentMessage::Assistant {
+                content: AssistantContent { text: Some(text), tool_calls: None, thinking: None },
+            });
+            break;
+        }
+
+        let results = execute_tool_calls(tools, &valid_tool_calls).await?;
+
+        for tc in &valid_tool_calls {
             tool_calls_made.push(tc.name.clone());
         }
 
-        // Push assistant message with tool calls
         conversation.push(AgentMessage::Assistant {
             content: AssistantContent {
                 text: Some(text),
-                tool_calls: Some(tool_calls.clone()),
+                tool_calls: Some(valid_tool_calls.clone()),
                 thinking: None,
             },
         });
 
-        // Push tool results
         for result in results {
+            if result.tool_call_id.is_empty() { continue; }
             conversation.push(AgentMessage::Tool {
                 tool_call_id: result.tool_call_id,
                 content: truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN),
@@ -218,19 +229,23 @@ where
         }
     }
 
-    // Finalize last tool call
+    // Finalize last tool call — validate before using
     if let Some(tc) = current_tc.take() {
-        // Try to parse accumulated args as JSON
-        if let serde_json::Value::String(ref args_str) = tc.arguments {
-            let parsed: serde_json::Value = serde_json::from_str(args_str).unwrap_or(tc.arguments.clone());
-            tool_calls.push(ToolCall {
-                id: tc.id,
-                name: tc.name,
-                arguments: parsed,
-            });
-        } else {
-            tool_calls.push(tc);
+        if !tc.id.is_empty() && !tc.name.is_empty() {
+            if let serde_json::Value::String(ref args_str) = tc.arguments {
+                let parsed: serde_json::Value = serde_json::from_str(args_str).unwrap_or(tc.arguments.clone());
+                tool_calls.push(ToolCall { id: tc.id, name: tc.name, arguments: parsed });
+            } else {
+                tool_calls.push(tc);
+            }
         }
+    }
+
+    // Filter: only keep tool calls with valid ids and names
+    let valid_count = tool_calls.iter().filter(|tc| !tc.id.is_empty() && !tc.name.is_empty()).count();
+    if valid_count < tool_calls.len() {
+        tracing::warn!(total = tool_calls.len(), valid = valid_count, "some tool calls had empty ids, filtering");
+        tool_calls.retain(|tc| !tc.id.is_empty() && !tc.name.is_empty());
     }
 
     Ok((text, tool_calls, tokens))

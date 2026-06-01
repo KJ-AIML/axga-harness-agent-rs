@@ -1,5 +1,10 @@
 # Rust build artifacts
 /target/
+**/*.rs.bk
+*.pdb
+
+# Release tarballs
+*.tar.gz
 
 # IDE
 .idea/
@@ -11,3 +16,8 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Environment
+.env
+.env.local
+.memctrl/

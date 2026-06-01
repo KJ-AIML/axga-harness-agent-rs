@@ -4,10 +4,17 @@
 //! Custom tokio runtime: 2 worker threads (ADR-004).
 //! Binary size target: <10 MB (release, musl, LTO).
 
+// Use mimalloc for better memory efficiency (replaces system allocator).
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod runtime;
+mod tui_mode;
+mod telegram;
+mod mcp;
 
 #[derive(Parser)]
 #[command(name = "axga", version, about = "AI coding agent for 1GB VPS")]
@@ -46,6 +53,38 @@ struct Cli {
     /// Verbose output.
     #[arg(short, long)]
     verbose: bool,
+
+    /// JSON log format for production.
+    #[arg(long)]
+    json_log: bool,
+
+    // ── Telegram Bot ──
+
+    /// Start Telegram bot mode (requires --key).
+    #[arg(long)]
+    telegram: bool,
+
+    /// Telegram bot token from @BotFather.
+    #[arg(long)]
+    key: Option<String>,
+
+    /// Telegram webhook URL (alternative to long-polling).
+    #[arg(long)]
+    webhook_url: Option<String>,
+
+    /// Run onboarding wizard.
+    #[arg(long)]
+    onboard: bool,
+
+    // ── Agent Spawning ──
+
+    /// Spawn a new agent with the given prompt.
+    #[arg(long)]
+    spawn: Option<String>,
+
+    /// Allow dangerous shell commands (rm, dd, curl|sh, etc).
+    #[arg(long)]
+    dangerous: bool,
 }
 
 #[derive(Subcommand)]
@@ -55,17 +94,31 @@ enum Commands {
     /// Print current configuration.
     Config,
     /// Run memory diagnostics.
-    Doctor,
+    Doctor {
+        /// Output in JSON format.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start MCP server (stdio transport, JSON-RPC).
+    Mcp,
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     let log_level = if cli.verbose { "axga=debug" } else { "axga=info" };
-    tracing_subscriber::fmt()
-        .with_env_filter(log_level)
-        .with_target(false)
-        .init();
+    if cli.json_log {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(log_level)
+            .with_target(false)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(log_level)
+            .with_target(false)
+            .init();
+    }
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "axga starting");
 
@@ -75,15 +128,43 @@ fn main() -> anyhow::Result<()> {
 
     let rt = runtime::build_runtime()?;
     rt.block_on(async {
-        match cli.command {
-            Some(Commands::Models) => cmd_models().await,
-            Some(Commands::Config) => cmd_config().await,
-            Some(Commands::Doctor) => cmd_doctor().await,
-            None => {
-                if let Some(ref prompt) = cli.prompt {
-                    cmd_single_shot(&prompt, &cli).await
-                } else {
-                    cmd_interactive(&cli).await
+        // ── Telegram Bot Mode ──
+        if cli.telegram {
+            let token = cli.key.as_deref()
+                .ok_or_else(|| anyhow::anyhow!("--key <bot_token> required for --telegram. Get one from @BotFather."))?;
+            let api_key = match cli.provider.as_str() {
+                "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
+                    .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
+                "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
+                _ => None,
+            };
+            if cli.onboard { cmd_onboard(&cli).await?; println!(); }
+            if let Some(ref webhook_url) = cli.webhook_url {
+                telegram::run_telegram_webhook(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref(), webhook_url).await
+            } else {
+                telegram::run_telegram_bot(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref()).await
+            }
+        }
+        // ── Onboarding wizard (without telegram) ──
+        else if cli.onboard {
+            cmd_onboard(&cli).await
+        }
+        // ── Spawn agent ──
+        else if let Some(ref spawn_prompt) = cli.spawn {
+            cmd_spawn(&cli, spawn_prompt)
+        }
+        else {
+            match cli.command {
+                Some(Commands::Models) => cmd_models().await,
+                Some(Commands::Config) => cmd_config().await,
+                Some(Commands::Doctor { json }) => cmd_doctor(json).await,
+                Some(Commands::Mcp) => cmd_mcp().await,
+                None => {
+                    if let Some(ref prompt) = cli.prompt {
+                        cmd_single_shot(prompt, &cli).await
+                    } else {
+                        cmd_interactive(&cli).await
+                    }
                 }
             }
         }
@@ -108,29 +189,66 @@ async fn cmd_config() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_doctor() -> anyhow::Result<()> {
-    println!("axga doctor — diagnostics:");
-    println!("  Rust:        {}", rustc_version());
-    println!("  CWD:         {}", std::env::current_dir().unwrap_or_default().display());
-    println!("  OpenAI key:  {}", if std::env::var("OPENAI_API_KEY").is_ok() { "set" } else { "not set" });
-    println!("  Anthropic:   {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "set" } else { "not set" });
+async fn cmd_doctor(json: bool) -> anyhow::Result<()> {
+    if json {
+        let info = serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "rust_version": rustc_version(),
+            "cwd": std::env::current_dir().unwrap_or_default().display().to_string(),
+            "openai_key": std::env::var("OPENAI_API_KEY").is_ok(),
+            "deepseek_key": std::env::var("DEEPSEEK_API_KEY").is_ok(),
+            "anthropic_key": std::env::var("ANTHROPIC_API_KEY").is_ok(),
+            "memctrl_db": std::path::Path::new(".memctrl/memories.db").exists(),
+            "config_file": std::path::Path::new(".config/axga/config.toml").exists()
+                || std::path::Path::new("axga.toml").exists(),
+            "pid": std::process::id(),
+        });
+        println!("{}", serde_json::to_string_pretty(&info)?);
+    } else {
+        println!("axga doctor — diagnostics:");
+        println!("  Rust:        {}", rustc_version());
+        println!("  CWD:         {}", std::env::current_dir().unwrap_or_default().display());
+        println!("  OpenAI key:  {}", if std::env::var("OPENAI_API_KEY").is_ok() { "set" } else { "not set" });
+        println!("  DeepSeek:    {}", if std::env::var("DEEPSEEK_API_KEY").is_ok() { "set" } else { "not set" });
+        println!("  Anthropic:   {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "set" } else { "not set" });
+        println!("  MemCtrl DB:  {}", if std::path::Path::new(".memctrl/memories.db").exists() { "found" } else { "not found" });
+    }
     Ok(())
+}
+
+async fn cmd_mcp() -> anyhow::Result<()> {
+    use axga_core::tools::{fs, shell, code, memctrl_native, web_search, fetch_url};
+    use axga_core::tools::registry::ToolRegistry;
+    let mut registry = ToolRegistry::new();
+    registry.register(fs::ReadFileTool)?;
+    registry.register(fs::WriteFileTool)?;
+    registry.register(fs::ListDirectoryTool)?;
+    registry.register(shell::ShellTool::new(false))?;
+    registry.register(code::GrepTool)?;
+    registry.register(code::GlobTool)?;
+    registry.register(code::DiffTool)?;
+    registry.register(memctrl_native::MemCtrlTool::new()?)?;
+    registry.register(web_search::WebSearchTool)?;
+    registry.register(fetch_url::FetchUrlTool)?;
+    mcp::run_mcp_server("mcp", None, "any", &registry).await
 }
 
 async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
     use axga_core::{Conversation, ToolRegistry, run_turn};
-    use axga_core::tools::{fs, shell, code};
+    use axga_core::tools::{fs, shell, code, memctrl_native, web_search, fetch_url};
 
     // Build tool registry
     let mut registry = ToolRegistry::new();
     registry.register(fs::ReadFileTool)?;
     registry.register(fs::WriteFileTool)?;
     registry.register(fs::ListDirectoryTool)?;
-    registry.register(shell::ShellTool)?;
+    registry.register(shell::ShellTool::new(false))?;
     registry.register(code::GrepTool)?;
     registry.register(code::GlobTool)?;
     registry.register(code::DiffTool)?;
-
+    registry.register(memctrl_native::MemCtrlTool::new()?)?;
+    registry.register(web_search::WebSearchTool)?;
+    registry.register(fetch_url::FetchUrlTool)?;
     let api_key = match cli.provider.as_str() {
         "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
             .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
@@ -174,18 +292,6 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
 }
 
 async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
-    use axga_core::{Conversation, ToolRegistry, run_turn};
-    use axga_core::tools::{fs, shell, code};
-
-    let mut registry = ToolRegistry::new();
-    registry.register(fs::ReadFileTool)?;
-    registry.register(fs::WriteFileTool)?;
-    registry.register(fs::ListDirectoryTool)?;
-    registry.register(shell::ShellTool)?;
-    registry.register(code::GrepTool)?;
-    registry.register(code::GlobTool)?;
-    registry.register(code::DiffTool)?;
-
     let api_key = match cli.provider.as_str() {
         "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
             .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
@@ -193,73 +299,92 @@ async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
         _ => None,
     };
 
-    let mut conversation = Conversation::new();
+    tui_mode::run_tui(
+        &cli.provider,
+        api_key.as_deref(),
+        cli.base_url.as_deref(),
+        &cli.model,
+        cli.system_prompt.as_deref(),
+        cli.max_turns,
+    )
+    .await
+}
 
-    println!("AXGA Interactive — {} / {}", cli.provider, cli.model);
-    println!("7 tools loaded. Type /help for commands, /quit to exit.\n");
+async fn cmd_onboard(cli: &Cli) -> anyhow::Result<()> {
+    println!("╔══════════════════════════════════════════╗");
+    println!("║        AXGA Onboarding Wizard           ║");
+    println!("╠══════════════════════════════════════════╣");
+    println!("║                                          ║");
+    println!("║  Setup options:                          ║");
+    println!("║                                          ║");
+    println!("║  axga --onboard --telegram --key <token> ║");
+    println!("║    → Start Telegram bot with your token  ║");
+    println!("║                                          ║");
+    println!("║  axga --spawn \"your prompt\"             ║");
+    println!("║    → Spawn sub-agent with prompt         ║");
+    println!("║                                          ║");
+    println!("║  Get a Telegram token:                   ║");
+    println!("║    1. Open @BotFather on Telegram        ║");
+    println!("║    2. Send /newbot                       ║");
+    println!("║    3. Copy the token                     ║");
+    println!("║                                          ║");
+    println!("╚══════════════════════════════════════════╝");
 
-    let mut input = String::new();
-    loop {
-        print!("> ");
-        use std::io::Write;
-        std::io::stdout().flush()?;
-
-        input.clear();
-        if std::io::stdin().read_line(&mut input).is_err() { break; }
-        let trimmed = input.trim();
-
-        if trimmed.is_empty() { continue; }
-        if trimmed == "/quit" || trimmed == "/exit" { break; }
-        if trimmed == "/help" {
-            println!("Commands: /quit, /help, /clear, /history, /tools");
-            continue;
+    if let Some(ref token) = cli.key {
+        if cli.telegram {
+            println!("\n→ Starting Telegram bot with token: {}...", &token[..8.min(token.len())]);
         }
-        if trimmed == "/clear" {
-            conversation.reset();
-            println!("Conversation cleared.");
-            continue;
-        }
-        if trimmed == "/history" {
-            println!("{} messages ({} turns)", conversation.len(), conversation.turn_count());
-            continue;
-        }
-        if trimmed == "/tools" {
-            for name in registry.names() {
-                if let Some(tool) = registry.get(name) {
-                    println!("  {} — {}", tool.name(), tool.description());
-                }
-            }
-            continue;
-        }
-
-        match run_turn(
-            &cli.provider,
-            api_key.as_deref(),
-            cli.base_url.as_deref(),
-            &cli.model,
-            &mut conversation,
-            trimmed,
-            &registry,
-            cli.system_prompt.as_deref(),
-            cli.max_turns,
-        )
-        .await
-        {
-            Ok(turn) => {
-                println!("{}\n", turn.final_text);
-                if !turn.tool_calls_made.is_empty() {
-                    eprintln!("  [tools: {} | {} tokens]",
-                        turn.tool_calls_made.join(", "),
-                        turn.total_tokens);
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}\n", e);
-            }
-        }
+    } else if cli.telegram {
+        println!("\n→ --telegram requires --key <bot_token>");
     }
 
     Ok(())
+}
+
+fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
+    let current_exe = std::env::current_exe()?;
+    let provider = cli.provider.clone();
+    let model = cli.model.clone();
+
+    println!("Spawning sub-agent with prompt: {}", prompt);
+    println!("Provider: {}, Model: {}", provider, model);
+
+    // Detect terminal
+    let terminal = if std::env::var("TMUX").is_ok() {
+        "tmux"
+    } else if cfg!(target_os = "macos") {
+        "osascript"
+    } else {
+        "gnome-terminal"
+    };
+
+    match terminal {
+        "tmux" => {
+            let cmd = format!(
+                "tmux split-window -h -c \"$(pwd)\" \"{} --provider {} --model {} --prompt '{}'\"",
+                current_exe.display(), provider, model, prompt
+            );
+            println!("→ Spawning via tmux: {}", cmd);
+            std::process::Command::new("bash").arg("-c").arg(&cmd).spawn()?;
+            Ok(())
+        }
+        "osascript" => {
+            let cmd = format!(
+                "tell application \"Terminal\" to do script \"cd '$(pwd)' && {} --provider {} --model {} --prompt '{}'\"",
+                current_exe.display(), provider, model, prompt
+            );
+            std::process::Command::new("osascript").arg("-e").arg(&cmd).spawn()?;
+            Ok(())
+        }
+        _ => {
+            let cmd = format!(
+                "gnome-terminal -- bash -c \"{} --provider {} --model {} --prompt '{}'; exec \\$SHELL\"",
+                current_exe.display(), provider, model, prompt
+            );
+            std::process::Command::new("bash").arg("-c").arg(&cmd).spawn()?;
+            Ok(())
+        }
+    }
 }
 
 fn rustc_version() -> String {

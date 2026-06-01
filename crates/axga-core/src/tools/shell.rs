@@ -11,7 +11,41 @@ use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
 
-pub struct ShellTool;
+pub struct ShellTool {
+    denylist: Vec<String>,
+    dangerous_mode: bool,
+}
+
+impl ShellTool {
+    pub fn new(dangerous: bool) -> Self {
+        Self {
+            denylist: vec![
+                "rm -rf /".into(), "rm -rf /*".into(), "rm -rf ~".into(),
+                "mkfs.".into(), "dd if=".into(), ":(){ :|:& };:".into(),
+                "chmod -R 777 /".into(), "> /dev/sda".into(),
+            ],
+            dangerous_mode: dangerous,
+        }
+    }
+
+    fn is_blocked(&self, command: &str) -> Option<String> {
+        if self.dangerous_mode { return None; }
+        let lower = command.to_lowercase();
+        for pattern in &self.denylist {
+            if lower.contains(&pattern.to_lowercase()) {
+                return Some(format!("Blocked: '{}' matches denylist pattern '{}'. Use --dangerous to bypass.", command, pattern));
+            }
+        }
+        // Block pipe-to-shell patterns
+        if lower.contains("curl") && lower.contains("| sh") || lower.contains("| bash") {
+            return Some("Blocked: curl | sh pattern detected. Use --dangerous to bypass.".into());
+        }
+        if lower.contains("wget") && lower.contains("| sh") {
+            return Some("Blocked: wget | sh pattern detected.".into());
+        }
+        None
+    }
+}
 
 impl Tool for ShellTool {
     fn name(&self) -> &str { "execute_shell" }
@@ -34,6 +68,11 @@ impl Tool for ShellTool {
             let command = input["command"].as_str().ok_or_else(|| AxgaError::ToolError {
                 tool: "execute_shell".into(), message: "missing 'command'".into(),
             })?;
+
+            // Safety check
+            if let Some(reason) = self.is_blocked(command) {
+                return Err(AxgaError::ToolError { tool: "execute_shell".into(), message: reason });
+            }
             let timeout_secs = input["timeout_seconds"].as_u64().unwrap_or(60);
 
             #[cfg(target_os = "windows")]

@@ -1,0 +1,22 @@
+[package]
+name = "axga-browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Browser automation tools for AXGA (chromiumoxide + WebBridge)"
+
+[features]
+default = []
+chromiumoxide = ["dep:chromiumoxide"]
+webbridge = []
+
+[dependencies]
+axga-shared.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+chromiumoxide = { version = "0.7", optional = true, default-features = false, features = ["tokio-runtime"] }

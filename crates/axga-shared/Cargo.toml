@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+description = "AXGA shared types, errors, and memory limits"
+repository = "https://github.com/KJ-AIML/axga-harness-agent-rs"
+keywords = ["ai", "agent", "llm"]
+categories = ["development-tools"]
 
 [dependencies]
 serde.workspace = true

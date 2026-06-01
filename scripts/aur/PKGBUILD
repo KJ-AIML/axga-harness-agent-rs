@@ -1,0 +1,16 @@
+# Maintainer: AXGA Contributors
+# Contributor: KJ-AIML
+
+pkgname=axga
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="4.7MB AI coding agent — runs on 1GB VPS (10 tools, 3 providers, TUI + Telegram)"
+arch=('x86_64')
+url="https://github.com/KJ-AIML/axga-harness-agent-rs"
+license=('MIT')
+source=("$url/releases/download/v$pkgver/axga-v$pkgver-x86_64-linux-musl")
+sha256sums=('REPLACE_WITH_ACTUAL_SHA256')
+
+package() {
+  install -Dm755 "$srcdir/axga-v$pkgver-x86_64-linux-musl" "$pkgdir/usr/bin/axga"
+}

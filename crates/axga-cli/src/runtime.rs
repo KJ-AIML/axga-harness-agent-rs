@@ -11,7 +11,7 @@ pub fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .max_blocking_threads(4)
-            .thread_stack_size(2 * 1024 * 1024) // 2 MB per thread
+            .thread_stack_size(512 * 1024) // 512 KB per thread (was 2MB)
             .enable_all()
             .build()?,
     )

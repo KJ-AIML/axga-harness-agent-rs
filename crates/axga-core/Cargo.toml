@@ -4,11 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+description = "Agent runtime for AXGA — tool registry, conversation state, retry logic"
+repository = "https://github.com/KJ-AIML/axga-harness-agent-rs"
+keywords = ["ai", "agent", "llm", "tools"]
+categories = ["development-tools"]
 
 [dependencies]
 axga-shared.workspace = true
 axga-ai.workspace = true
 tokio.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -18,3 +23,6 @@ tokio-stream.workspace = true
 glob.workspace = true
 regex.workspace = true
 similar.workspace = true
+toml = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid.workspace = true

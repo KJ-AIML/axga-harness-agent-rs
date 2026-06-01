@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+description = "Unified LLM provider abstraction for AXGA (OpenAI, Anthropic, DeepSeek)"
+repository = "https://github.com/KJ-AIML/axga-harness-agent-rs"
+keywords = ["ai", "llm", "openai", "anthropic", "deepseek"]
+categories = ["development-tools", "api-bindings"]
 
 [dependencies]
 axga-shared.workspace = true
