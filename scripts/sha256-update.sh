@@ -1,0 +1,65 @@
+#!/bin/bash
+# scripts/sha256-update.sh
+# Run after building all release archives to auto-fill SHA256 hashes
+# in the Homebrew formula and AUR PKGBUILD.
+#
+# Usage:
+#   ./scripts/sha256-update.sh v0.1.0
+#
+# Prerequisites: all axga-v<VERSION>-*.tar.gz archives must exist in CWD.
+
+set -euo pipefail
+
+VERSION="${1:?Usage: $0 <version-tag, e.g. v0.1.0>}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "=== Updating SHA256 hashes for axga ${VERSION} ==="
+
+# ── Homebrew Formula ──────────────────────────────────────────────
+BREW_FILE="${REPO_ROOT}/scripts/homebrew/axga.rb"
+
+update_brew_sha() {
+    local arch_label="$1"   # e.g. "x86_64-unknown-linux-musl"
+    local archive="axga-${VERSION}-${arch_label}.tar.gz"
+
+    if [ ! -f "$archive" ]; then
+        echo "  WARNING: ${archive} not found — skipping"
+        return
+    fi
+
+    local sha=$(sha256sum "$archive" | awk '{print $1}')
+    echo "  ${arch_label}: ${sha}"
+
+    # Replace the TODO line following the matching URL line
+    sed -i "/axga-v.*-${arch_label}\.tar\.gz\"/{
+        n
+        s/sha256 \".*\"/sha256 \"${sha}\"/
+    }" "$BREW_FILE"
+}
+
+echo ""
+echo "Homebrew formula:"
+update_brew_sha "x86_64-unknown-linux-musl"
+update_brew_sha "aarch64-unknown-linux-musl"
+update_brew_sha "x86_64-apple-darwin"
+update_brew_sha "aarch64-apple-darwin"
+
+# ── AUR PKGBUILD ──────────────────────────────────────────────────
+PKGBUILD_FILE="${REPO_ROOT}/scripts/aur/PKGBUILD"
+
+echo ""
+echo "AUR PKGBUILD:"
+ARCHIVE="axga-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
+if [ -f "$ARCHIVE" ]; then
+    SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+    echo "  x86_64: ${SHA}"
+    sed -i "s/sha256sums=('[^']*')/sha256sums=('${SHA}')/" "$PKGBUILD_FILE"
+else
+    echo "  WARNING: ${ARCHIVE} not found — skipping"
+fi
+
+echo ""
+echo "=== Done ==="
+echo "Review changes:"
+echo "  git diff scripts/homebrew/axga.rb scripts/aur/PKGBUILD"

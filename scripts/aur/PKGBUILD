@@ -18,7 +18,7 @@ _platform() {
 }
 
 source=("$url/releases/download/v$pkgver/axga-v$pkgver-$(_platform).tar.gz")
-sha256sums=('REPLACE_WITH_ACTUAL_SHA256')
+sha256sums=('c751933392de5941583d8a9ec257ba0fe865740c819f5c36b18c07e7e4f6e6d8')
 
 package() {
   install -Dm755 "$srcdir/axga" "$pkgdir/usr/bin/axga"

@@ -14,12 +14,13 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.target }}
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.target }}${{ matrix.suffix }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # ── Linux (musl) ──
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             features: ""
@@ -33,6 +34,19 @@ jobs:
             features: ""
             suffix: "-minimal"
             no_default_features: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            features: ""
+            suffix: ""
+          # ── macOS ──
+          - target: x86_64-apple-darwin
+            os: macos-13
+            features: ""
+            suffix: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            features: ""
+            suffix: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -43,8 +57,13 @@ jobs:
           toolchain: "1.88"
           targets: ${{ matrix.target }}
 
-      - name: Install musl tools
+      - name: Install musl tools (Linux only)
+        if: contains(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cross-compilers (Linux arm64)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -108,7 +127,7 @@ jobs:
               cp "$file" "release/$newname"
             done
           done
-          # Also generate combined sha256 for the tar.gz
+          # Generate sha256 for each tar.gz
           for tar in release/*.tar.gz; do
             sha256sum "$tar" | awk '{print $1}' > "${tar}.sha256"
           done
@@ -130,5 +149,8 @@ jobs:
             - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz` — Standard build (10 tools)
             - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl-browser.tar.gz` — With browser support
             - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl-minimal.tar.gz` — Minimal build (no extras)
+            - `axga-v${{ github.ref_name }}-aarch64-unknown-linux-musl.tar.gz` — Linux ARM64
+            - `axga-v${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` — macOS Intel
+            - `axga-v${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` — macOS Apple Silicon
           files: release/*
           generate_release_notes: true

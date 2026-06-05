@@ -7,20 +7,20 @@ class Axga < Formula
   on_linux do
     if Hardware::CPU.intel?
       url "https://github.com/KJ-AIML/axga-harness-agent-rs/releases/download/v#{version}/axga-v#{version}-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256"
+      sha256 "c751933392de5941583d8a9ec257ba0fe865740c819f5c36b18c07e7e4f6e6d8"
     elsif Hardware::CPU.arm?
       url "https://github.com/KJ-AIML/axga-harness-agent-rs/releases/download/v#{version}/axga-v#{version}-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256"
+      sha256 "TODO: run scripts/sha256-update.sh at release time"
     end
   end
 
   on_macos do
     if Hardware::CPU.intel?
       url "https://github.com/KJ-AIML/axga-harness-agent-rs/releases/download/v#{version}/axga-v#{version}-x86_64-apple-darwin.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256"
+      sha256 "TODO: run scripts/sha256-update.sh at release time"
     elsif Hardware::CPU.arm?
       url "https://github.com/KJ-AIML/axga-harness-agent-rs/releases/download/v#{version}/axga-v#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256"
+      sha256 "TODO: run scripts/sha256-update.sh at release time"
     end
   end
 

@@ -96,19 +96,19 @@ Bot:     ⚙ web_search → DuckDuckGo
 ## 🚀 Quick Start
 
 ```bash
-# One-line install (Linux x86_64)
+# One-line install (Linux / macOS)
 curl -fsSL https://raw.githubusercontent.com/KJ-AIML/axga-harness-agent-rs/main/install.sh | sudo sh
 
-# Homebrew (after tap creation)
+# Homebrew
 brew install KJ-AIML/axga/axga
 
-# Arch Linux (AUR, after upload)
+# Arch Linux (AUR)
 yay -S axga
 
-# Cargo (any platform, coming soon)
+# Cargo (coming soon — not yet on crates.io)
 cargo install axga-cli
 
-# Docker (coming soon)
+# Docker
 docker run -e DEEPSEEK_API_KEY="sk-..." ghcr.io/kj-aiml/axga --help
 ```
 
@@ -298,7 +298,7 @@ WantedBy=multi-user.target
 ```
 
 ### GitHub Actions Release
-Tagging `v*.*.*` triggers auto-build: `x86_64-unknown-linux-musl` (standard, browser, minimal variants), SHA256 generation, GitHub Release creation.
+Tagging `v*.*.*` triggers auto-build for 6 targets (`x86_64`/`aarch64` Linux musl, `x86_64`/`aarch64` macOS, plus browser/minimal variants), SHA256 generation, `.tar.gz` packaging, and GitHub Release creation.
 
 ---
 
