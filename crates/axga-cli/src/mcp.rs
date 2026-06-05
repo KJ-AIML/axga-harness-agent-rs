@@ -9,9 +9,9 @@ use std::io::{BufRead, BufReader, Write};
 use tracing::{debug, info};
 
 pub async fn run_mcp_server(
-    provider: &str,
-    api_key: Option<&str>,
-    model: &str,
+    _provider: &str,
+    _api_key: Option<&str>,
+    _model: &str,
     registry: &ToolRegistry,
 ) -> anyhow::Result<()> {
     info!("MCP server starting (stdio transport)");
@@ -21,8 +21,8 @@ pub async fn run_mcp_server(
     let reader = BufReader::new(stdin);
 
     let mut initialized = false;
-    let mut server_name = String::from("axga");
-    let mut server_version = String::from(env!("CARGO_PKG_VERSION"));
+    let server_name = String::from("axga");
+    let server_version = String::from(env!("CARGO_PKG_VERSION"));
 
     for line in reader.lines() {
         let line = line?;

@@ -71,14 +71,19 @@ jobs:
       - name: Generate SHA256
         run: |
           cd target/${{ matrix.target }}/release
-          sha256sum ${{ env.BINARY_NAME }} > ${{ env.BINARY_NAME }}-v${{ github.ref_name }}-${{ matrix.target }}${{ matrix.suffix }}.sha256
+          sha256sum ${{ env.BINARY_NAME }} > ${{ env.BINARY_NAME }}-${{ matrix.target }}${{ matrix.suffix }}.sha256
+
+      - name: Create archive
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf ${{ env.BINARY_NAME }}-${{ matrix.target }}${{ matrix.suffix }}.tar.gz ${{ env.BINARY_NAME }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}${{ matrix.suffix }}
+          name: ${{ matrix.target }}${{ matrix.suffix }}
           path: |
-            target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}
+            target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}-${{ matrix.target }}${{ matrix.suffix }}.tar.gz
             target/${{ matrix.target }}/release/*.sha256
 
   release:
@@ -93,10 +98,19 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
+          VERSION="${{ github.ref_name }}"
           for dir in artifacts/*; do
-            name=$(basename "$dir")
-            cp "$dir/${{ env.BINARY_NAME }}" "release/${{ env.BINARY_NAME }}-v${{ github.ref_name }}-${name}"
-            cp "$dir/"*.sha256 release/ 2>/dev/null || true
+            for file in "$dir"/*; do
+              fname=$(basename "$file")
+              # Rename: axga-<target>.tar.gz → axga-v<version>-<target>.tar.gz
+              # Rename: axga-<target>.sha256 → axga-v<version>-<target>.tar.gz.sha256
+              newname=$(echo "$fname" | sed "s/^axga-/axga-v${VERSION}-/")
+              cp "$file" "release/$newname"
+            done
+          done
+          # Also generate combined sha256 for the tar.gz
+          for tar in release/*.tar.gz; do
+            sha256sum "$tar" | awk '{print $1}' > "${tar}.sha256"
           done
           ls -lh release/
 
@@ -113,8 +127,8 @@ jobs:
             ```
 
             ### Assets
-            - `axga-v${{ github.ref_name }}-x86_64-linux-musl` — Standard build (10 tools)
-            - `axga-v${{ github.ref_name }}-x86_64-linux-musl-browser` — With browser support
-            - `axga-v${{ github.ref_name }}-x86_64-linux-musl-minimal` — Minimal build (no extras)
+            - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz` — Standard build (10 tools)
+            - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl-browser.tar.gz` — With browser support
+            - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl-minimal.tar.gz` — Minimal build (no extras)
           files: release/*
           generate_release_notes: true

@@ -9,7 +9,6 @@
 
 use axga_core::{Conversation, ToolRegistry, run_turn};
 use axga_core::tools::{fs, shell, code, memctrl_native, web_search, fetch_url};
-use axga_shared::types::AgentMessage;
 use serde_json::Value;
 use std::time::Duration;
 
@@ -161,7 +160,7 @@ fn truncate_telegram(text: &str) -> String {
 }
 /// Webhook mode — sets up a webhook URL and listens for updates via POST.
 pub async fn run_telegram_webhook(
-    provider: &str, api_key: Option<&str>, model: &str,
+    _provider: &str, _api_key: Option<&str>, _model: &str,
     token: &str, _system_prompt: Option<&str>, webhook_url: &str,
 ) -> anyhow::Result<()> {
     let client = reqwest::Client::new();

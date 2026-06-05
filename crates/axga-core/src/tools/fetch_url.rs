@@ -54,8 +54,6 @@ impl Tool for FetchUrlTool {
                 match c {
                     '<' => {
                         in_tag = true;
-                        // Check for script/style
-                        let rest = &html[html.len().saturating_sub(html.len())..];
                     }
                     '>' => in_tag = false,
                     _ if !in_tag => {

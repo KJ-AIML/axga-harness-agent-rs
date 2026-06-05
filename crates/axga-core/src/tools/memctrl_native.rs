@@ -203,21 +203,21 @@ impl Tool for MemCtrlTool {
             match action.as_str() {
                 "add" => {
                     if content.is_empty() { return Err(AxgaError::ToolError { tool: "memctrl".into(), message: "content required".into() }); }
-                    Self { native: MemCtrlNative::new()? }.native.add(&content, &layer, &source, confidence)
+                    self.native.add(&content, &layer, &source, confidence)
                 }
                 "query" => {
                     if content.is_empty() { return Err(AxgaError::ToolError { tool: "memctrl".into(), message: "content required".into() }); }
-                    Self { native: MemCtrlNative::new()? }.native.query(&content)
+                    self.native.query(&content)
                 }
                 "list" => {
                     let l = if layer == "session" { None } else { Some(layer.as_str()) };
-                    Self { native: MemCtrlNative::new()? }.native.list(l)
+                    self.native.list(l)
                 }
                 "forget" => {
                     if id.is_empty() { return Err(AxgaError::ToolError { tool: "memctrl".into(), message: "id required".into() }); }
-                    Self { native: MemCtrlNative::new()? }.native.forget(&id)
+                    self.native.forget(&id)
                 }
-                "doctor" => Self { native: MemCtrlNative::new()? }.native.doctor(),
+                "doctor" => self.native.doctor(),
                 _ => Err(AxgaError::ToolError { tool: "memctrl".into(), message: format!("unknown action: {}", action) }),
             }
         })

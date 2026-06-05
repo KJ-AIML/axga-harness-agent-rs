@@ -24,8 +24,23 @@ NC='\033[0m'
 VERSION="$DEFAULT_VERSION"
 while [ $# -gt 0 ]; do
     case "$1" in
-        --version) VERSION="$2"; shift 2 ;;
-        --dir) INSTALL_DIR="$2"; shift 2 ;;
+        --version)
+            if [ $# -lt 2 ]; then
+                echo "${RED}--version requires a value${NC}"
+                exit 1
+            fi
+            VERSION="$2"; shift 2 ;;
+        --dir)
+            if [ $# -lt 2 ]; then
+                echo "${RED}--dir requires a value${NC}"
+                exit 1
+            fi
+            INSTALL_DIR="$2"; shift 2 ;;
+        --help|-h)
+            echo "Usage: install.sh [--version VERSION] [--dir INSTALL_DIR]"
+            echo "  --version   Version to install (default: ${DEFAULT_VERSION})"
+            echo "  --dir       Installation directory (default: /usr/local/bin)"
+            exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -71,14 +86,24 @@ else
 fi
 
 # ── Extract ──
-tar -xzf "$TMP_DIR/$ARCHIVE" -C "$TMP_DIR"
+if ! tar -xzf "$TMP_DIR/$ARCHIVE" -C "$TMP_DIR" 2>/dev/null; then
+    echo "${RED}Failed to extract archive. It may be corrupted or in an unexpected format.${NC}"
+    exit 1
+fi
+
+# Find the binary — it may be at the archive root or one directory deep
+BINARY_PATH=$(find "$TMP_DIR" -name "$BINARY_NAME" -type f 2>/dev/null | head -1)
+if [ -z "$BINARY_PATH" ]; then
+    echo "${RED}Binary '$BINARY_NAME' not found in archive.${NC}"
+    exit 1
+fi
 
 # ── Install ──
 if [ ! -d "$INSTALL_DIR" ]; then
     mkdir -p "$INSTALL_DIR"
 fi
 
-install -m 755 "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+install -m 755 "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
 
 echo ""
 echo "${GREEN}axga ${VERSION} installed to ${INSTALL_DIR}/${BINARY_NAME}${NC}"

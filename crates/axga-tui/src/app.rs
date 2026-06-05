@@ -17,7 +17,7 @@
 use crate::theme::Theme;
 use crate::markdown::{self, MarkdownTheme};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, List, ListState, ListItem, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use ratatui::Frame;
@@ -188,7 +188,6 @@ impl App {
                 }
                 ChatLine::Assistant(text) => {
                     let md_text = markdown::render_markdown(text, &self.markdown_theme);
-                    let height = md_text.height();
                     ListItem::new(md_text).style(Style::default())
                 }
                 ChatLine::Tool { name, detail } => {
