@@ -14,7 +14,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 authors = ["AXGA Contributors"]
-repository = "https://github.com/axga/axga-harness-agent-rs"
+repository = "https://github.com/KJ-AIML/axga-harness-agent-rs"
 rust-version = "1.88"
 
 [workspace.dependencies]

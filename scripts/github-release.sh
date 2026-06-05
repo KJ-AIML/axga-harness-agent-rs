@@ -46,10 +46,10 @@ gh release create "${VERSION}" \
 
 ## Install
 \`\`\`sh
-curl -fsSL https://raw.githubusercontent.com/KJ-AIML/axga-harness-agent-rs/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/KJ-AIML/axga-harness-agent-rs/main/install.sh | sh
 \`\`\`" \
     axga-*.tar.gz
 
 echo ""
 echo "=== Done ==="
-echo "Install: curl -fsSL https://raw.githubusercontent.com/KJ-AIML/axga-harness-agent-rs/master/install.sh | sh"
+echo "Install: curl -fsSL https://raw.githubusercontent.com/KJ-AIML/axga-harness-agent-rs/main/install.sh | sh"
