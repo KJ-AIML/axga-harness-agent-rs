@@ -33,6 +33,7 @@ pub struct App {
     pub is_streaming: bool,
     pub cursor_pos: usize,
     pub pending_gg: bool,
+    pub pending_prompt: PendingPrompt,
     markdown_theme: MarkdownTheme,
     list_state: ListState,
     scrollbar_state: ScrollbarState,
@@ -51,6 +52,16 @@ pub enum InputMode {
     Insert,
     Normal,
     Command,
+}
+
+/// Interactive wizard state for guided provider setup.
+#[derive(Debug, Clone)]
+pub enum PendingPrompt {
+    None,
+    /// Waiting for API key (provider_name, optional_preferred_model)
+    ApiKey { provider: String, model: Option<String> },
+    /// Waiting for model selection
+    Model { provider: String },
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +93,7 @@ impl App {
             is_streaming: false,
             cursor_pos: 0,
             pending_gg: false,
+            pending_prompt: PendingPrompt::None,
             markdown_theme: MarkdownTheme::default(),
             list_state: ListState::default(),
             scrollbar_state: ScrollbarState::default(),

@@ -3,7 +3,7 @@
 //! Layout: Status bar | Chat with bullets | Border-decorated input
 //! Theme: Semantic color tokens, dark mode by default
 
-use axga_tui::app::{App, ChatLine, InputMode};
+use axga_tui::app::{App, ChatLine, InputMode, PendingPrompt};
 use axga_tui::theme;
 use axga_core::{Conversation, ToolRegistry, run_turn, load_config, save_config};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
@@ -130,6 +130,46 @@ async fn tui_loop(
                                     app.cursor_pos = 0;
                                     if input.trim().is_empty() { continue; }
 
+                                    // Interactive wizard: provider setup
+                                    match std::mem::replace(&mut app.pending_prompt, PendingPrompt::None) {
+                                        PendingPrompt::ApiKey { provider: p, model: pref_model } => {
+                                            if let Some(mut config) = load_config() {
+                                                config.provider.api_key = Some(input.clone());
+                                                config.provider.provider_type = Some(p.clone());
+                                                let _ = save_config(&config);
+                                            }
+                                            app.chat_lines.push(ChatLine::Info(format!("API key saved for {p}")));
+                                            if let Some(m) = pref_model {
+                                                *provider = p;
+                                                *model = m;
+                                                app.status.model = model.clone();
+                                                conversation.reset();
+                                                app.chat_lines.push(ChatLine::Info(format!("Switched to {provider} / {model}")));
+                                                app.chat_lines.push(ChatLine::Info("Conversation reset. Ready to chat!".into()));
+                                            } else {
+                                                let models = match p.as_str() {
+                                                    "deepseek" => "deepseek-v4-flash / deepseek-v4-pro",
+                                                    "openai" => "gpt-4o-mini / gpt-4o / o1-mini",
+                                                    _ => "gpt-4o-mini",
+                                                };
+                                                app.chat_lines.push(ChatLine::Info(format!("Select model for {p}: {models}")));
+                                                app.chat_lines.push(ChatLine::Info("Type model name and press Enter:".into()));
+                                                app.pending_prompt = PendingPrompt::Model { provider: p };
+                                            }
+                                            continue;
+                                        }
+                                        PendingPrompt::Model { provider: p } => {
+                                            *provider = p.clone();
+                                            *model = input.clone();
+                                            app.status.model = input;
+                                            conversation.reset();
+                                            app.chat_lines.push(ChatLine::Info(format!("Switched to {p} / {model}")));
+                                            app.chat_lines.push(ChatLine::Info("Ready to chat!".into()));
+                                            continue;
+                                        }
+                                        PendingPrompt::None => {}
+                                    }
+
                                     // Check for slash commands
                                     if input.starts_with('/') {
                                         let full = input.strip_prefix('/').unwrap_or(&input).trim();
@@ -246,22 +286,24 @@ async fn tui_loop(
                                                     app.chat_lines.push(ChatLine::Info("Set API key:".into()));
                                                     app.chat_lines.push(ChatLine::Info("  /apikey sk-...".into()));
                                                 } else {
-                                                    let new_provider = parts[0];
-                                                    let new_model = parts.get(1).copied().unwrap_or(
-                                                        match new_provider {
-                                                            "deepseek" => "deepseek-v4-flash",
-                                                            "openai" => "gpt-4o-mini",
-                                                            _ => "gpt-4o-mini",
-                                                        }
-                                                    );
-                                                    *provider = new_provider.to_string();
-                                                    *model = new_model.to_string();
-                                                    app.status.model = model.clone();
-                                                    conversation.reset();
-                                                    app.chat_lines.push(ChatLine::Info(format!("Switched to provider={provider}, model={model}")));
-                                                    app.chat_lines.push(ChatLine::Info("Conversation reset.".into()));
-                                                    if resolve_api_key(provider).is_none() {
-                                                        app.chat_lines.push(ChatLine::Error("No API key found. Set it with: /apikey sk-...".into()));
+                                                    let new_provider = parts[0].to_string();
+                                                    let new_model = parts.get(1).map(|s| s.to_string());
+                                                    *provider = new_provider.clone();
+                                                    if resolve_api_key(&new_provider).is_none() {
+                                                        app.chat_lines.push(ChatLine::Info(format!("No API key found for {new_provider}.")));
+                                                        app.chat_lines.push(ChatLine::Info("Paste your API key and press Enter:".into()));
+                                                        app.pending_prompt = PendingPrompt::ApiKey { provider: new_provider, model: new_model };
+                                                    } else {
+                                                        let m = new_model.unwrap_or_else(|| match provider.as_str() {
+                                                            "deepseek" => "deepseek-v4-flash".into(),
+                                                            "openai" => "gpt-4o-mini".into(),
+                                                            _ => "gpt-4o-mini".into(),
+                                                        });
+                                                        *model = m;
+                                                        app.status.model = model.clone();
+                                                        conversation.reset();
+                                                        app.chat_lines.push(ChatLine::Info(format!("Switched to {provider} / {model}")));
+                                                        app.chat_lines.push(ChatLine::Info("Conversation reset.".into()));
                                                     }
                                                 }
                                             }
