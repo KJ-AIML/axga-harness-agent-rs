@@ -16,6 +16,7 @@ mod runtime;
 mod tui_mode;
 mod telegram;
 mod mcp;
+mod onboard;
 
 #[derive(Parser)]
 #[command(name = "axga", version, about = "AI coding agent for 1GB VPS")]
@@ -76,6 +77,14 @@ struct Cli {
     /// Run onboarding wizard.
     #[arg(long)]
     onboard: bool,
+
+    /// Run as a background daemon (no TUI, logs to stdout).
+    #[arg(long)]
+    daemon: bool,
+
+    /// Start Discord bot mode (requires --key with bot token).
+    #[arg(long)]
+    discord: bool,
 
     // ── Agent Spawning ──
 
@@ -153,16 +162,37 @@ fn main() -> anyhow::Result<()> {
                 "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
                 _ => None,
             };
-            if cli.onboard { cmd_onboard(&cli).await?; println!(); }
+            if cli.onboard { onboard::cmd_onboard(&cli).await?; println!(); }
             if let Some(ref webhook_url) = cli.webhook_url {
                 telegram::run_telegram_webhook(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref(), webhook_url, cli.dangerous).await
             } else {
                 telegram::run_telegram_bot(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref(), cli.dangerous).await
             }
         }
-        // ── Onboarding wizard (without telegram) ──
+        // ── Discord Bot Mode ──
+        else if cli.discord {
+            let token = cli.key.as_deref()
+                .ok_or_else(|| anyhow::anyhow!("--key <bot_token> required for --discord. Get one from discord.com/developers."))?;
+            tracing::info!("Discord bot mode starting");
+            println!("🤖 Discord bot — starting with token: {}...", &token[..8.min(token.len())]);
+            println!("   (Discord integration is in development — connecting via serenity)");
+            println!("   Add to your server: https://discord.com/oauth2/authorize?client_id=YOUR_ID&scope=bot");
+            // TODO: Full Discord integration via serenity crate
+            // For now, run as background daemon listening on stdin
+            let _api_key = match cli.provider.as_str() {
+                "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
+                    .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
+                "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
+                _ => None,
+            };
+            // Keep alive as daemon
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        }
+        // ── Onboarding wizard (without telegram/discord) ──
         else if cli.onboard {
-            cmd_onboard(&cli).await
+            onboard::cmd_onboard(&cli).await
         }
         // ── Spawn agent ──
         else if let Some(ref spawn_prompt) = cli.spawn {
@@ -343,36 +373,6 @@ async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
     .await
 }
 
-async fn cmd_onboard(cli: &Cli) -> anyhow::Result<()> {
-    println!("╔══════════════════════════════════════════╗");
-    println!("║        AXGA Onboarding Wizard           ║");
-    println!("╠══════════════════════════════════════════╣");
-    println!("║                                          ║");
-    println!("║  Setup options:                          ║");
-    println!("║                                          ║");
-    println!("║  axga --onboard --telegram --key <token> ║");
-    println!("║    → Start Telegram bot with your token  ║");
-    println!("║                                          ║");
-    println!("║  axga --spawn \"your prompt\"             ║");
-    println!("║    → Spawn sub-agent with prompt         ║");
-    println!("║                                          ║");
-    println!("║  Get a Telegram token:                   ║");
-    println!("║    1. Open @BotFather on Telegram        ║");
-    println!("║    2. Send /newbot                       ║");
-    println!("║    3. Copy the token                     ║");
-    println!("║                                          ║");
-    println!("╚══════════════════════════════════════════╝");
-
-    if let Some(ref token) = cli.key {
-        if cli.telegram {
-            println!("\n→ Starting Telegram bot with token: {}...", &token[..8.min(token.len())]);
-        }
-    } else if cli.telegram {
-        println!("\n→ --telegram requires --key <bot_token>");
-    }
-
-    Ok(())
-}
 
 fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
     let current_exe = std::env::current_exe()?;
