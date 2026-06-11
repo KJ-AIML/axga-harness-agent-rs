@@ -13,7 +13,14 @@
 use axga_core::{Conversation, run_turn_streaming, StreamHandler, PermissionManager, PermissionMode};
 use axga_core::goal::GoalManager;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+fn dirs_config() -> PathBuf {
+    if let Ok(dir) = std::env::var("AXGA_CONFIG_DIR") { return PathBuf::from(dir).join("axga"); }
+    #[cfg(target_os = "windows")] { PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into())).join("axga") }
+    #[cfg(not(target_os = "windows"))] { PathBuf::from(format!("{}/.config/axga", std::env::var("HOME").unwrap_or_default())) }
+}
 
 pub async fn run_discord_bot(
     provider: &str,
@@ -105,7 +112,22 @@ pub async fn run_discord_bot(
     let goal_manager = Arc::new(Mutex::new(GoalManager::new()));
 
     // Per-channel last processed message ID to avoid reprocessing
-    let mut last_ids: HashMap<String, String> = HashMap::new();
+    let state_path = {
+        let dir = dirs_config();
+        std::fs::create_dir_all(&dir)?;
+        dir.join("discord_state.json")
+    };
+    let mut last_ids: HashMap<String, String> = if state_path.exists() {
+        std::fs::read_to_string(&state_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+    if !last_ids.is_empty() {
+        println!("   Resuming from saved state ({} channels)", last_ids.len());
+    }
 
     // ── Poll loop ──
     loop {
@@ -155,6 +177,12 @@ pub async fn run_discord_bot(
                     // Not mentioned; still track this message ID so we don't
                     // re-check it, but don't process.
                     last_ids.insert(ch_id.clone(), msg_id);
+                // Persist state periodically
+                if last_ids.len() % 5 == 0 {
+                    if let Ok(json) = serde_json::to_string(&last_ids) {
+                        let _ = std::fs::write(&state_path, json);
+                    }
+                }
                     continue;
                 }
 
@@ -270,20 +298,30 @@ pub async fn run_discord_bot(
                             ).await;
                         }
                         let reply = if !handler.text.is_empty() {
-                            truncate_discord(&handler.text, 1900)
+                            handler.text.clone()
                         } else {
-                            truncate_discord(&response_text, 1900)
+                            response_text
                         };
-                        println!("🤖 → {reply}");
+                        // Split long messages into chunks (Discord 2000 char limit)
+                        let chunks = chunk_message(&reply, 1950);
+                        for (i, chunk) in chunks.iter().enumerate() {
+                            let prefix = if chunks.len() > 1 {
+                                format!("({}/{}) ", i + 1, chunks.len())
+                            } else {
+                                String::new()
+                            };
+                            let msg = format!("{prefix}{chunk}");
+                            println!("🤖 → {msg}");
 
-                        let _ = client
-                            .post(format!(
-                                "https://discord.com/api/v10/channels/{ch_id}/messages"
-                            ))
-                            .header("Authorization", format!("Bot {token}"))
-                            .json(&serde_json::json!({ "content": reply }))
-                            .send()
-                            .await;
+                            let _ = client
+                                .post(format!(
+                                    "https://discord.com/api/v10/channels/{ch_id}/messages"
+                                ))
+                                .header("Authorization", format!("Bot {token}"))
+                                .json(&serde_json::json!({ "content": msg }))
+                                .send()
+                                .await;
+                        }
                     }
                     Err(e) => {
                         let err_msg = format!("Error: {e}");
@@ -301,6 +339,12 @@ pub async fn run_discord_bot(
 
                 // Track this message as processed
                 last_ids.insert(ch_id.clone(), msg_id);
+                // Persist state periodically
+                if last_ids.len() % 5 == 0 {
+                    if let Ok(json) = serde_json::to_string(&last_ids) {
+                        let _ = std::fs::write(&state_path, json);
+                    }
+                }
             }
         }
 
@@ -370,15 +414,29 @@ fn strip_mention(content: &str, bot_name: &str) -> String {
     s.trim().to_string()
 }
 
-fn truncate_discord(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        // Find last valid char boundary to avoid panicking on multi-byte UTF-8
-        let mut end = max_len;
-        while end > 0 && !s.is_char_boundary(end) {
+/// Split a long message into Discord-safe chunks (max 2000 chars per chunk).
+/// Respects UTF-8 character boundaries.
+fn chunk_message(s: &str, max_chars: usize) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut remaining = s;
+    while !remaining.is_empty() {
+        if remaining.len() <= max_chars {
+            chunks.push(remaining.to_string());
+            break;
+        }
+        // Find safe cut point at char boundary
+        let mut end = max_chars;
+        while end > 0 && !remaining.is_char_boundary(end) {
             end -= 1;
         }
-        format!("{}... [truncated]", &s[..end])
+        // Try to break at newline for cleaner cuts
+        if let Some(nl) = remaining[..end].rfind('\n') {
+            if nl > max_chars / 2 {
+                end = nl + 1;
+            }
+        }
+        chunks.push(remaining[..end].trim_end().to_string());
+        remaining = remaining[end..].trim_start();
     }
+    chunks
 }
