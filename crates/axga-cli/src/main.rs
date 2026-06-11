@@ -233,7 +233,7 @@ async fn cmd_doctor(json: bool) -> anyhow::Result<()> {
 }
 
 async fn cmd_mcp(dangerous: bool) -> anyhow::Result<()> {
-    let registry = axga_core::build_default_registry(dangerous, None, None, None, None)?;
+    let registry = axga_core::build_default_registry(dangerous, None, None, None, None, None)?;
     mcp::run_mcp_server("mcp", None, "any", &registry).await
 }
 
@@ -245,7 +245,7 @@ async fn cmd_orchestrate(config_path: &str, prompt: &str, dangerous: bool) -> an
     let agent_configs: Vec<SubAgentConfig> = serde_json::from_str(&config_file)
         .map_err(|e| anyhow::anyhow!("Failed to parse config file '{config_path}': {e}"))?;
 
-    let registry = axga_core::build_default_registry(dangerous, None, None, None, None)?;
+    let registry = axga_core::build_default_registry(dangerous, None, None, None, None, None)?;
     let orch = Orchestrator::new(registry);
 
     let config_inputs: Vec<(SubAgentConfig, String)> = agent_configs
@@ -291,6 +291,7 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
         Some(&cli.model),
         api_key.as_deref(),
         cli.base_url.as_deref(),
+        None,
     )?;
 
     let mut conversation = Conversation::new();

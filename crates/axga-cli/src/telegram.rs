@@ -40,6 +40,7 @@ pub async fn run_telegram_bot(
         Some(model),
         api_key,
         None, // base_url
+        None, // goal_manager
     )?;
     let mut conversation = Conversation::new();
     let mut last_update_id: i64 = 0;

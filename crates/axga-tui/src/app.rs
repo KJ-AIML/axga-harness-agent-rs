@@ -37,6 +37,8 @@ pub struct App {
     markdown_theme: MarkdownTheme,
     list_state: ListState,
     scrollbar_state: ScrollbarState,
+    /// Number of active goals (for footer badge).
+    pub goal_active_count: usize,
 }
 
 /// Rough estimate: average tokens per conversation message.
@@ -120,6 +122,7 @@ impl App {
             markdown_theme: MarkdownTheme::default(),
             list_state: ListState::default(),
             scrollbar_state: ScrollbarState::default(),
+            goal_active_count: 0,
         }
     }
 
@@ -161,6 +164,12 @@ impl App {
         };
     }
 
+    /// Sync theme fields from global atomic (cheap — no alloc).
+    pub fn refresh_theme(&mut self) {
+        self.theme = crate::theme::current_theme();
+        self.markdown_theme = crate::theme::current_markdown_theme();
+    }
+
     pub fn render(&self, f: &mut Frame) {
         let area = f.area();
 
@@ -199,6 +208,14 @@ impl App {
             Style::default().fg(perm_color).add_modifier(Modifier::BOLD),
         ));
         parts.push(Span::styled(" ", Style::default()));
+
+        // Goal badge
+        if self.goal_active_count > 0 {
+            parts.push(Span::styled(
+                format!("🎯{} ", self.goal_active_count),
+                Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD),
+            ));
+        }
 
         // Model
         parts.push(Span::styled(

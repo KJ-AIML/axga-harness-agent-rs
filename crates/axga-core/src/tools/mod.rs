@@ -18,6 +18,8 @@ pub mod agent;
 pub mod agent_swarm;
 pub mod plan;
 pub mod ask_user;
+pub mod cron;
+pub mod goal;
 
 use axga_shared::error::AxgaResult;
 use serde_json::Value;

@@ -5,7 +5,7 @@
 
 use axga_tui::app::{App, ChatLine, InputMode, PendingPrompt};
 use axga_tui::theme;
-use axga_core::{Conversation, ToolRegistry, run_turn_streaming, continue_turn_streaming, simple_chat, StreamHandler, load_config, save_config, PermissionManager, PermissionMode};
+use axga_core::{Conversation, ToolRegistry, run_turn_streaming, continue_turn_streaming, simple_chat, StreamHandler, load_config, save_config, PermissionManager, PermissionMode, goal::GoalManager};
 use axga_core::tools::ask_user::parse_ask_user_result;
 use axga_shared::types::{AgentMessage, ToolCall};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
@@ -23,12 +23,14 @@ pub async fn run_tui(
     yolo: bool,
 ) -> anyhow::Result<()> {
     let api_key = resolve_api_key(&provider);
+    let goal_manager = std::sync::Arc::new(std::sync::Mutex::new(GoalManager::new()));
     let mut registry = axga_core::build_default_registry(
         dangerous,
         Some(&provider),
         Some(&model),
         api_key.as_deref(),
         base_url,
+        Some(std::sync::Arc::clone(&goal_manager)),
     )?;
     let mut conversation = Conversation::new();
     let mut terminal = ratatui::init();
@@ -39,9 +41,19 @@ pub async fn run_tui(
     let mode = if yolo { PermissionMode::Auto } else { PermissionMode::Manual };
     let permissions = Arc::new(PermissionManager::new(mode));
 
-    // Welcome
-    app.chat_lines.push(ChatLine::Info(format!("axga v{} — {} / {}", env!("CARGO_PKG_VERSION"), provider, model)));
-    app.chat_lines.push(ChatLine::Info("Type a message, press Enter. i=insert  Esc=normal  :q=quit  :tools=list".into()));
+    // Welcome panel
+    app.chat_lines.push(ChatLine::Spacer);
+    app.chat_lines.push(ChatLine::Info("    █████╗ ██╗  ██╗ ██████╗  █████╗ ".into()));
+    app.chat_lines.push(ChatLine::Info("   ██╔══██╗╚██╗██╔╝██╔════╝ ██╔══██╗".into()));
+    app.chat_lines.push(ChatLine::Info("   ███████║ ╚███╔╝ ██║  ███╗███████║".into()));
+    app.chat_lines.push(ChatLine::Info("   ██╔══██║ ██╔██╗ ██║   ██║██╔══██║".into()));
+    app.chat_lines.push(ChatLine::Info("   ██║  ██║██╔╝ ██╗╚██████╔╝██║  ██║".into()));
+    app.chat_lines.push(ChatLine::Info("   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝".into()));
+    app.chat_lines.push(ChatLine::Spacer);
+    app.chat_lines.push(ChatLine::Info(format!("axga v{} · {} · {}", env!("CARGO_PKG_VERSION"), provider, model)));
+    app.chat_lines.push(ChatLine::Spacer);
+    app.chat_lines.push(ChatLine::Info("Type a message and press Enter.".into()));
+    app.chat_lines.push(ChatLine::Info("Type /help for available commands.".into()));
     app.chat_lines.push(ChatLine::Spacer);
 
     // Git branch detection
@@ -68,7 +80,7 @@ pub async fn run_tui(
         &mut provider, base_url, &mut model,
         system_prompt, max_turns,
         &mut registry, &mut conversation,
-        permissions,
+        permissions, goal_manager,
     ).await;
 
     ratatui::restore();
@@ -111,6 +123,7 @@ impl StreamHandler for TuiStreamHandler<'_, '_> {
         // Push an empty assistant line as a streaming placeholder
         self.app.chat_lines.push(ChatLine::Assistant(String::new()));
         self.streaming_line_idx = Some(self.app.chat_lines.len() - 1);
+        self.app.refresh_theme();
         let _ = self.terminal.draw(|f| self.app.render(f));
     }
 
@@ -122,6 +135,7 @@ impl StreamHandler for TuiStreamHandler<'_, '_> {
                 self.app.chat_lines[idx] = ChatLine::Assistant(self.accumulated_text.clone());
             }
         }
+        self.app.refresh_theme();
         let _ = self.terminal.draw(|f| self.app.render(f));
     }
 
@@ -153,6 +167,7 @@ impl StreamHandler for TuiStreamHandler<'_, '_> {
             detail,
         });
         self.tools_seen.push(name.to_string());
+        self.app.refresh_theme();
         let _ = self.terminal.draw(|f| self.app.render(f));
     }
 
@@ -166,6 +181,7 @@ impl StreamHandler for TuiStreamHandler<'_, '_> {
                 }
             }
         }
+        self.app.refresh_theme();
         let _ = self.terminal.draw(|f| self.app.render(f));
     }
 }
@@ -181,6 +197,27 @@ impl StreamHandler for NoopStreamHandler {
     fn on_done(&mut self) {}
 }
 
+/// Notify the GoalManager of turn usage and display any budget warnings/errors.
+fn update_goals_after_turn(
+    goal_manager: &std::sync::Arc<std::sync::Mutex<GoalManager>>,
+    app: &mut App,
+    tokens_used: u32,
+) {
+    let mut gm = goal_manager.lock().unwrap();
+    let events = gm.on_turn(tokens_used, 1, std::time::Duration::ZERO);
+    app.goal_active_count = gm.active_count();
+    for evt in events {
+        match evt {
+            axga_core::goal::GoalEvent::BudgetLow { objective, usage_pct, .. } => {
+                app.chat_lines.push(ChatLine::Info(format!("⚠ Goal budget low ({usage_pct}%): {objective}")));
+            }
+            axga_core::goal::GoalEvent::BudgetExceeded { objective, .. } => {
+                app.chat_lines.push(ChatLine::Error(format!("🛑 Goal budget exceeded — auto-blocked: {objective}")));
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn tui_loop(
     terminal: &mut DefaultTerminal,
@@ -193,6 +230,7 @@ async fn tui_loop(
     registry: &mut ToolRegistry,
     conversation: &mut Conversation,
     permissions: Arc<PermissionManager>,
+    goal_manager: std::sync::Arc<std::sync::Mutex<GoalManager>>,
 ) -> anyhow::Result<()> {
     let mut spinner_tick: usize = 0;
     let mut pending_approvals_stack: Vec<ToolCall> = Vec::new();
@@ -203,6 +241,7 @@ async fn tui_loop(
         app.spinner_idx = spinner_tick;
         spinner_tick = spinner_tick.wrapping_add(1);
 
+        app.refresh_theme();
         terminal.draw(|f| app.render(f))?;
 
         if app.exit {
@@ -339,6 +378,7 @@ async fn tui_loop(
                                                         }
                                                         app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                                         app.update_context(conversation.len());
+                                                        update_goals_after_turn(&goal_manager, app, turn.total_tokens);
                                                         // Handle any new pending approvals
                                                         if !turn.pending_approvals.is_empty() {
                                                             resolved_calls = turn.pending_approvals.clone();
@@ -395,6 +435,7 @@ async fn tui_loop(
                                                     }
                                                     app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                                     app.update_context(conversation.len());
+                                                    update_goals_after_turn(&goal_manager, app, turn.total_tokens);
                                                 }
                                                 Err(e) => {
                                                     app.chat_lines.push(ChatLine::Error(format!("{e}")));
@@ -444,6 +485,8 @@ async fn tui_loop(
                                                 app.chat_lines.push(ChatLine::Info("│ /apikey <key>   Save API key to config     │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /yolo           Auto-approve all tools    │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /manual         Switch to manual approval │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /goal [list|create|complete|pause|resume|remove] Manage goals │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /theme dark|light  Switch color scheme    │".into()));
                                                 app.chat_lines.push(ChatLine::Info("╰──────────────────────────────────────────╯".into()));
                                                 app.chat_lines.push(ChatLine::Info("Keys: ↑↓ scroll | Esc normal | i insert | Ctrl+C quit".into()));
                                             }
@@ -667,6 +710,118 @@ async fn tui_loop(
                                                 app.status.permission_mode = "MANUAL".into();
                                                 app.chat_lines.push(ChatLine::Info("Manual mode: asking before write/shell tools".into()));
                                             }
+                                            "goal" => {
+                                                let gm = goal_manager.lock().unwrap();
+                                                let sub = args.trim();
+                                                if sub.is_empty() || sub == "list" {
+                                                    if gm.is_empty() {
+                                                        app.chat_lines.push(ChatLine::Info("No goals defined. Use /goal create <id> <objective>".into()));
+                                                    } else {
+                                                        app.chat_lines.push(ChatLine::Info(format!("{} goal(s):", gm.len())));
+                                                        for g in gm.iter() {
+                                                            let pct = g.remaining_budget.usage_pct(&g.original_budget);
+                                                            app.chat_lines.push(ChatLine::Info(format!(
+                                                                "  [{}] {} — {} ({}% budget used)",
+                                                                g.status, g.id, g.objective, pct
+                                                            )));
+                                                        }
+                                                    }
+                                                } else if let Some(rest) = sub.strip_prefix("create ") {
+                                                    let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+                                                    if parts.len() < 2 {
+                                                        app.chat_lines.push(ChatLine::Info("Usage: /goal create <id> <objective>".into()));
+                                                    } else {
+                                                        let id = parts[0].to_string();
+                                                        let obj = parts[1].to_string();
+                                                        drop(gm);
+                                                        let mut gm = goal_manager.lock().unwrap();
+                                                        let g = axga_core::goal::Goal {
+                                                            id,
+                                                            objective: obj,
+                                                            completion_criterion: String::new(),
+                                                            status: axga_core::goal::GoalStatus::Active,
+                                                            original_budget: axga_core::goal::GoalBudget::unlimited(),
+                                                            remaining_budget: axga_core::goal::GoalBudget::unlimited(),
+                                                            progress: String::new(),
+                                                            created_at: chrono::Utc::now(),
+                                                            started_at: Some(std::time::Instant::now()),
+                                                        };
+                                                        match gm.create(g) {
+                                                            Ok(_) => {
+                                                                app.goal_active_count = gm.active_count();
+                                                                app.chat_lines.push(ChatLine::Info(format!("Goal '{}' created", parts[0])));
+                                                            }
+                                                            Err(e) => app.chat_lines.push(ChatLine::Error(e)),
+                                                        }
+                                                    }
+                                                } else if let Some(id) = sub.strip_prefix("complete ") {
+                                                    drop(gm);
+                                                    let mut gm = goal_manager.lock().unwrap();
+                                                    match gm.complete(id.trim()) {
+                                                        Ok(_) => {
+                                                            app.goal_active_count = gm.active_count();
+                                                            app.chat_lines.push(ChatLine::Info(format!("Goal '{}' marked complete", id.trim())));
+                                                        }
+                                                        Err(e) => app.chat_lines.push(ChatLine::Error(e)),
+                                                    }
+                                                } else if let Some(id) = sub.strip_prefix("pause ") {
+                                                    drop(gm);
+                                                    let mut gm = goal_manager.lock().unwrap();
+                                                    match gm.update(id.trim(), Some(axga_core::goal::GoalStatus::Paused), None) {
+                                                        Ok(_) => {
+                                                            app.goal_active_count = gm.active_count();
+                                                            app.chat_lines.push(ChatLine::Info(format!("Goal '{}' paused", id.trim())));
+                                                        }
+                                                        Err(e) => app.chat_lines.push(ChatLine::Error(e)),
+                                                    }
+                                                } else if let Some(id) = sub.strip_prefix("resume ") {
+                                                    drop(gm);
+                                                    let mut gm = goal_manager.lock().unwrap();
+                                                    match gm.update(id.trim(), Some(axga_core::goal::GoalStatus::Active), None) {
+                                                        Ok(_) => {
+                                                            app.goal_active_count = gm.active_count();
+                                                            app.chat_lines.push(ChatLine::Info(format!("Goal '{}' resumed", id.trim())));
+                                                        }
+                                                        Err(e) => app.chat_lines.push(ChatLine::Error(e)),
+                                                    }
+                                                } else if let Some(id) = sub.strip_prefix("remove ") {
+                                                    drop(gm);
+                                                    let mut gm = goal_manager.lock().unwrap();
+                                                    match gm.remove(id.trim()) {
+                                                        Some(_) => {
+                                                            app.goal_active_count = gm.active_count();
+                                                            app.chat_lines.push(ChatLine::Info(format!("Goal '{}' removed", id.trim())));
+                                                        }
+                                                        None => app.chat_lines.push(ChatLine::Error(format!("Goal '{}' not found", id.trim()))),
+                                                    }
+                                                } else {
+                                                    app.chat_lines.push(ChatLine::Info("Usage: /goal [list|create|complete|pause|resume|remove]".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /goal list".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /goal create <id> <objective>".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /goal complete <id>".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /goal pause <id>".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /goal resume <id>".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /goal remove <id>".into()));
+                                                }
+                                            }
+                                            "theme" => {
+                                                match args.to_lowercase().as_str() {
+                                                    "dark" | "d" => {
+                                                        theme::set_dark(true);
+                                                        app.refresh_theme();
+                                                        app.chat_lines.push(ChatLine::Info("Theme: dark".into()));
+                                                    }
+                                                    "light" | "l" => {
+                                                        theme::set_dark(false);
+                                                        app.refresh_theme();
+                                                        app.chat_lines.push(ChatLine::Info("Theme: light".into()));
+                                                    }
+                                                    _ => {
+                                                        let current = if theme::is_dark() { "dark" } else { "light" };
+                                                        app.chat_lines.push(ChatLine::Info(format!("Current theme: {current}. Use /theme dark|light")));
+                                                    }
+                                                }
+                                            }
                                             _ => {
                                                 app.chat_lines.push(ChatLine::Error(format!("Unknown: /{cmd}. Try /help")));
                                             }
@@ -714,6 +869,7 @@ async fn tui_loop(
                                             }
                                             app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                             app.update_context(conversation.len());
+                                            update_goals_after_turn(&goal_manager, app, turn.total_tokens);
 
                                             // Handle pending approvals
                                             if !turn.pending_approvals.is_empty() {
@@ -880,6 +1036,7 @@ async fn tui_loop(
                                                         }
                                                         app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                                         app.update_context(conversation.len());
+                                                        update_goals_after_turn(&goal_manager, app, turn.total_tokens);
                                                         if !turn.pending_approvals.is_empty() {
                                                             resolved_calls = turn.pending_approvals.clone();
                                                             pending_approvals_stack = turn.pending_approvals.into_iter().rev().collect();
@@ -935,6 +1092,7 @@ async fn tui_loop(
                                                     }
                                                     app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                                     app.update_context(conversation.len());
+                                                    update_goals_after_turn(&goal_manager, app, turn.total_tokens);
                                                 }
                                                 Err(e) => {
                                                     app.chat_lines.push(ChatLine::Error(format!("{e}")));
@@ -976,6 +1134,7 @@ async fn tui_loop(
                                                 }
                                                 app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                                 app.update_context(conversation.len());
+                                                update_goals_after_turn(&goal_manager, app, turn.total_tokens);
 
                                                 if !turn.pending_approvals.is_empty() {
                                                     app.is_streaming = false;
