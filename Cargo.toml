@@ -66,6 +66,7 @@ axga-ai = { path = "crates/axga-ai" }
 axga-core = { path = "crates/axga-core" }
 axga-tui = { path = "crates/axga-tui" }
 axga-cli = { path = "crates/axga-cli" }
+axga-browser = { path = "crates/axga-browser" }
 
 # ── Release Profile ──
 [profile.release]

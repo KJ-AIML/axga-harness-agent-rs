@@ -17,6 +17,7 @@ Comprehensive codebase audit and cleanup. Fixed 3 critical, 10 medium, 9 low iss
 - **DeepSeek provider module**: Dedicated `axga_ai::providers::deepseek` — no longer an invisible alias.
 - **Provider trait**: Unified `Provider` trait in `axga-ai`, all 3 providers implement it. `AgentLoop` dispatches through `Box<dyn Provider>`.
 - **Per-tool unit tests**: 36+ new tests across all 7 tool modules (denylist, parameters, memctrl CRUD).
+- **Phase 5 Browser Full**: `HeadlessBackend` fully implemented with chromiumoxide — navigate, click, fill, JS execution, screenshot, PDF, DOM snapshot. Gated behind `--features browser`.
 - **Unused deps cleaned**: 7 removed from `axga-tui`.
 - **Unsafe block removed**: Spurious `unsafe` wrapper on `std::env::remove_var`.
 - **README synced**: Fixed "14" → "11" slash commands, removed fake `[security]` config section, added CLI reference table (9 undocumented flags/commands).

@@ -20,4 +20,5 @@ thiserror.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
 async-trait.workspace = true
+futures.workspace = true
 chromiumoxide = { version = "0.7", optional = true, default-features = false, features = ["tokio-runtime"] }

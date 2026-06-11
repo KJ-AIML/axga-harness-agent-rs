@@ -141,6 +141,7 @@ dependencies = [
  "async-trait",
  "axga-shared",
  "chromiumoxide",
+ "futures",
  "reqwest",
  "serde",
  "serde_json",
@@ -154,6 +155,7 @@ name = "axga-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axga-browser",
  "axga-core",
  "axga-shared",
  "axga-tui",

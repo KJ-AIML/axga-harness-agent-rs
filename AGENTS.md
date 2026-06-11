@@ -122,5 +122,5 @@ git push origin v0.1.0
 | 2: Browser | chromiumoxide + WebBridge trait | ✅ Stubs |
 | 3: Scale | Health check, JSON logging, webhook, crates.io | ✅ |
 | 4: Distribution | GitHub Actions, GPG, Homebrew, AUR, README | ✅ |
-| 5: Browser Full | chromiumoxide full implementation | ⬜ |
+| 5: Browser Full | chromiumoxide full implementation (navigate, click, fill, JS, screenshot, PDF, DOM) | ✅ |
 | 6: Multi-agent | Coordinated sub-agent spawning with resource budgets | ⬜ |

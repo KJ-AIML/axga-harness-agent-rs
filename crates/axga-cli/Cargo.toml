@@ -15,6 +15,7 @@ path = "src/main.rs"
 axga-shared.workspace = true
 axga-core.workspace = true
 axga-tui.workspace = true
+axga-browser = { workspace = true, optional = true }
 tokio.workspace = true
 clap.workspace = true
 tracing.workspace = true
@@ -25,3 +26,6 @@ ratatui.workspace = true
 crossterm.workspace = true
 reqwest.workspace = true
 mimalloc = "0.1"
+
+[features]
+browser = ["axga-browser/chromiumoxide"]
