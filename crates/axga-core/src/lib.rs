@@ -9,14 +9,16 @@ pub mod session;
 pub mod retry;
 pub mod config;
 pub mod orchestrator;
+pub mod permission;
 
 pub use state::Conversation;
-pub use agent_loop::run_turn;
+pub use agent_loop::{run_turn, run_turn_streaming, StreamHandler};
 pub use tools::registry::ToolRegistry;
 pub use tools::Tool;
 pub use config::{Config, load_config, save_config};
 pub use session::{save_session, load_session, list_sessions};
 pub use orchestrator::Orchestrator;
+pub use permission::{PermissionManager, PermissionMode, Permission};
 
 use axga_shared::error::AxgaResult;
 

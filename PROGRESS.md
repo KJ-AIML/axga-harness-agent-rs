@@ -26,6 +26,18 @@ Comprehensive codebase audit and cleanup. Fixed 3 critical, 10 medium, 9 low iss
 - **SHA256 pipeline**: `sha256-update.sh` handles dual-arch AUR; Homebrew formula has correct structure.
 - **All 3 phases from PLAN.md complete**: Critical fixes, doc sync, code quality, tests & design.
 
+## 2026-06-11 — v0.1.0: Streaming UI + Permission System
+
+### Context
+Analyzed kimi-code architecture and identified top UX gaps. Implemented the two highest-impact features.
+
+### Done
+- **Real-time streaming to TUI**: `StreamHandler` trait with `run_turn_streaming()` — text deltas, tool calls, and results appear in real-time instead of blocking with spinner.
+- **Permission/approval system**: `PermissionManager` with `--yolo` / `Manual` modes. Read-only tools auto-approved. `/yolo` and `/manual` slash commands.
+- **Provider wizard flow**: Guided `/provider deepseek` → API key prompt → model selection → saved to config. Interactive `PendingPrompt` state machine.
+- **Dashboard improvements**: Compare tool list, two-line footer, streaming status.
+- **All 66 tests passing, clippy clean**
+
 ## 2026-05-31 — v0.1.0: Initial Production Release
 
 ### Context
@@ -67,3 +79,7 @@ Completed full Rust port of axga-harness-agent. Target: sub-100MB RAM on 1GB VPS
 ### Next Actions
 1. Publish axga-shared, axga-ai, axga-core to crates.io
 2. Submit AUR package
+3. Implement TUI approval dialogs for permission.ask (currently falls back to allow)
+4. Add tabbed model selector dialog (like kimi-code's /model picker)
+5. Add LLM-powered context compaction
+6. Add event-sourced session persistence (replay/resume/fork)

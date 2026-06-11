@@ -7,8 +7,9 @@
 //! 2. Starts long-polling getUpdates
 //! 3. Each incoming message → runs agent → sends reply
 
-use axga_core::{Conversation, run_turn};
+use axga_core::{Conversation, run_turn, PermissionManager, PermissionMode};
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub async fn run_telegram_bot(
@@ -36,6 +37,9 @@ pub async fn run_telegram_bot(
     let registry = axga_core::build_default_registry(dangerous)?;
     let mut conversation = Conversation::new();
     let mut last_update_id: i64 = 0;
+
+    // Telegram bot: no user to ask — auto-approve all tools
+    let permissions = Arc::new(PermissionManager::new(PermissionMode::Auto));
 
     println!("🤖 Telegram bot @{bot_name} is running. Press Ctrl+C to stop.");
     println!("   Send a message to @{bot_name} on Telegram.");
@@ -91,6 +95,7 @@ pub async fn run_telegram_bot(
                                 &mut conversation, text,
                                 &registry, system_prompt,
                                 10,
+                                Some(permissions.clone()),
                             ).await {
                                 Ok(turn) => {
                                     let reply = if turn.final_text.is_empty() {

@@ -10,9 +10,11 @@ use axga_shared::error::AxgaResult;
 use axga_shared::limits;
 use axga_shared::types::ToolResult;
 use crate::tools::registry::ToolRegistry;
+use crate::permission::{Permission, PermissionManager};
 use axga_shared::types::ToolCall;
+use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Execute a batch of tool calls and return results.
 ///
@@ -22,6 +24,7 @@ use tracing::debug;
 pub async fn execute_tool_calls(
     registry: &ToolRegistry,
     calls: &[ToolCall],
+    permissions: Option<Arc<PermissionManager>>,
 ) -> AxgaResult<Vec<ToolResult>> {
     let (tx, mut rx) = mpsc::channel::<Result<ToolResult, axga_shared::error::AxgaError>>(
         limits::TOOL_CHANNEL_CAP,
@@ -32,9 +35,10 @@ pub async fn execute_tool_calls(
         let registry = registry.clone();
         let call = call.clone();
         let tx = tx.clone();
+        let permissions = permissions.clone();
 
         tokio::spawn(async move {
-            let result = execute_single_tool(&registry, &call).await;
+            let result = execute_single_tool(&registry, &call, permissions).await;
             let _ = tx.send(result).await;
         });
     }
@@ -61,8 +65,30 @@ pub async fn execute_tool_calls(
 async fn execute_single_tool(
     registry: &ToolRegistry,
     call: &ToolCall,
+    permissions: Option<Arc<PermissionManager>>,
 ) -> AxgaResult<ToolResult> {
     debug!(tool = %call.name, id = %call.id, "executing tool");
+
+    // Check permissions before executing
+    if let Some(ref perms) = permissions {
+        match perms.check(&call.name) {
+            Permission::Allow => {
+                // Proceed normally
+            }
+            Permission::Ask => {
+                // No TUI approval dialog available yet — treat as Allow for now
+                warn!(tool = %call.name, "permission check returned Ask but no handler available; allowing");
+            }
+            Permission::Deny => {
+                warn!(tool = %call.name, "tool denied by permission manager");
+                return Ok(ToolResult {
+                    tool_call_id: call.id.clone(),
+                    content: format!("Permission denied: tool '{}' is blocked by session policy", call.name),
+                    is_error: true,
+                });
+            }
+        }
+    }
 
     let tool = registry
         .get(&call.name)

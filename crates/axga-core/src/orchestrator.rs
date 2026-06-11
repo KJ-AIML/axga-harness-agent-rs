@@ -39,6 +39,7 @@ impl Orchestrator {
             &self.registry,
             config.system_prompt.as_deref(),
             config.max_turns,
+            None,
         )
         .await;
 

@@ -5,9 +5,10 @@
 
 use axga_tui::app::{App, ChatLine, InputMode, PendingPrompt};
 use axga_tui::theme;
-use axga_core::{Conversation, ToolRegistry, run_turn, load_config, save_config};
+use axga_core::{Conversation, ToolRegistry, run_turn_streaming, StreamHandler, load_config, save_config, PermissionManager, PermissionMode};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::DefaultTerminal;
+use std::sync::Arc;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_tui(
@@ -17,12 +18,17 @@ pub async fn run_tui(
     system_prompt: Option<&str>,
     max_turns: usize,
     dangerous: bool,
+    yolo: bool,
 ) -> anyhow::Result<()> {
     let mut registry = axga_core::build_default_registry(dangerous)?;
     let mut conversation = Conversation::new();
     let mut terminal = ratatui::init();
     let th = theme::dark_theme();
     let mut app = App::new(&model, th);
+
+    // Permission manager
+    let mode = if yolo { PermissionMode::Auto } else { PermissionMode::Manual };
+    let permissions = Arc::new(PermissionManager::new(mode));
 
     // Welcome
     app.chat_lines.push(ChatLine::Info(format!("axga v{} — {} / {}", env!("CARGO_PKG_VERSION"), provider, model)));
@@ -44,6 +50,7 @@ pub async fn run_tui(
         &mut provider, base_url, &mut model,
         system_prompt, max_turns,
         &mut registry, &mut conversation,
+        permissions,
     ).await;
 
     ratatui::restore();
@@ -66,6 +73,71 @@ fn resolve_api_key(provider: &str) -> Option<String> {
     }
 }
 
+/// StreamHandler implementation that renders to the TUI in real-time.
+struct TuiStreamHandler<'a, 'b> {
+    app: &'a mut App,
+    terminal: &'b mut DefaultTerminal,
+    /// Index in chat_lines of the current streaming assistant line.
+    streaming_line_idx: Option<usize>,
+    /// Accumulated assistant text for the current turn.
+    accumulated_text: String,
+    /// Tool calls tracked during this turn (name → detail shown).
+    tools_seen: Vec<String>,
+}
+
+impl StreamHandler for TuiStreamHandler<'_, '_> {
+    fn on_thinking(&mut self) {
+        self.app.is_streaming = true;
+        // Push an empty assistant line as a streaming placeholder
+        self.app.chat_lines.push(ChatLine::Assistant(String::new()));
+        self.streaming_line_idx = Some(self.app.chat_lines.len() - 1);
+        let _ = self.terminal.draw(|f| self.app.render(f));
+    }
+
+    fn on_text_delta(&mut self, text: &str) {
+        self.accumulated_text.push_str(text);
+        // Update the streaming line in-place
+        if let Some(idx) = self.streaming_line_idx {
+            if idx < self.app.chat_lines.len() {
+                self.app.chat_lines[idx] = ChatLine::Assistant(self.accumulated_text.clone());
+            }
+        }
+        let _ = self.terminal.draw(|f| self.app.render(f));
+    }
+
+    fn on_tool_call_delta(&mut self, _id: &str, _name: &str, _args: &str) {
+        // Tool call deltas arrive during streaming — we defer showing until execution
+    }
+
+    fn on_tool_call_result(&mut self, name: &str, result: &str) {
+        // Show tool result
+        let detail = if result.len() > 80 {
+            format!("{}...", &result[..80])
+        } else {
+            result.to_string()
+        };
+        self.app.chat_lines.push(ChatLine::Tool {
+            name: name.to_string(),
+            detail,
+        });
+        self.tools_seen.push(name.to_string());
+        let _ = self.terminal.draw(|f| self.app.render(f));
+    }
+
+    fn on_done(&mut self) {
+        self.app.is_streaming = false;
+        // If no text accumulated and we have a streaming placeholder, remove it
+        if self.accumulated_text.is_empty() {
+            if let Some(idx) = self.streaming_line_idx {
+                if idx < self.app.chat_lines.len() {
+                    self.app.chat_lines.remove(idx);
+                }
+            }
+        }
+        let _ = self.terminal.draw(|f| self.app.render(f));
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn tui_loop(
     terminal: &mut DefaultTerminal,
@@ -77,6 +149,7 @@ async fn tui_loop(
     max_turns: usize,
     registry: &mut ToolRegistry,
     conversation: &mut Conversation,
+    permissions: Arc<PermissionManager>,
 ) -> anyhow::Result<()> {
     let mut spinner_tick: usize = 0;
 
@@ -205,6 +278,8 @@ async fn tui_loop(
                                                 app.chat_lines.push(ChatLine::Info("│ /title <text>   Set session title        │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /provider [m]   Show/switch provider/model│".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /apikey <key>   Save API key to config     │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /yolo           Auto-approve all tools    │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /manual         Switch to manual approval │".into()));
                                                 app.chat_lines.push(ChatLine::Info("╰──────────────────────────────────────────╯".into()));
                                                 app.chat_lines.push(ChatLine::Info("Keys: ↑↓ scroll | Esc normal | i insert | Ctrl+C quit".into()));
                                             }
@@ -339,6 +414,14 @@ async fn tui_loop(
                                                     }
                                                 }
                                             }
+                                            "yolo" => {
+                                                permissions.set_mode(PermissionMode::Auto);
+                                                app.chat_lines.push(ChatLine::Info("YOLO mode: auto-approving all tools".into()));
+                                            }
+                                            "manual" => {
+                                                permissions.set_mode(PermissionMode::Manual);
+                                                app.chat_lines.push(ChatLine::Info("Manual mode: asking before write/shell tools".into()));
+                                            }
                                             _ => {
                                                 app.chat_lines.push(ChatLine::Error(format!("Unknown: /{cmd}. Try /help")));
                                             }
@@ -350,40 +433,49 @@ async fn tui_loop(
                                     // Push user message
                                     app.chat_lines.push(ChatLine::User(input.clone()));
 
-                                    // Show spinner
-                                    app.is_streaming = true;
-                                    app.chat_lines.push(ChatLine::Thinking("thinking...".into()));
-                                    terminal.draw(|f| app.render(f))?;
+                                    // Run agent with real-time streaming
+                                    let mut handler = TuiStreamHandler {
+                                        app: &mut *app,
+                                        terminal: &mut *terminal,
+                                        streaming_line_idx: None,
+                                        accumulated_text: String::new(),
+                                        tools_seen: Vec::new(),
+                                    };
 
-                                    // Run agent
-                                    match run_turn(provider.as_str(), resolve_api_key(provider).as_deref(), base_url, model.as_str(),
-                                        conversation, &input, registry, system_prompt, max_turns).await
-                                    {
+                                    let result = run_turn_streaming(provider.as_str(), resolve_api_key(provider).as_deref(), base_url, model.as_str(),
+                                        conversation, &input, registry, system_prompt, max_turns, &mut handler, Some(permissions.clone())).await;
+
+                                    let handler_accumulated = std::mem::take(&mut handler.accumulated_text);
+                                    let handler_tools_seen = std::mem::take(&mut handler.tools_seen);
+                                    let handler_streaming_idx = handler.streaming_line_idx;
+                                    // handler goes out of scope here, releasing app/terminal borrows
+
+                                    match result {
                                         Ok(turn) => {
-                                            // Remove spinner
-                                            app.chat_lines.pop();
-                                            app.is_streaming = false;
-
-                                            // Show tool calls
-                                            if !turn.tool_calls_made.is_empty() {
-                                                for tc in &turn.tool_calls_made {
+                                            // Tool results were already pushed by handler during streaming.
+                                            // Push any remaining tool calls that weren't shown.
+                                            for tc in &turn.tool_calls_made {
+                                                if !handler_tools_seen.contains(tc) {
                                                     app.chat_lines.push(ChatLine::Tool {
                                                         name: tc.clone(),
                                                         detail: "executed".into(),
                                                     });
                                                 }
                                             }
-
-                                            // Show response
-                                            if !turn.final_text.is_empty() {
+                                            // Text was streamed — only push fallback if somehow missing
+                                            if !turn.final_text.is_empty() && handler_accumulated.is_empty() {
                                                 app.chat_lines.push(ChatLine::Assistant(turn.final_text));
                                             }
-
                                             app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                         }
                                         Err(e) => {
-                                            app.chat_lines.pop();
                                             app.is_streaming = false;
+                                            // Remove the streaming placeholder if still there
+                                            if let Some(idx) = handler_streaming_idx {
+                                                if idx < app.chat_lines.len() {
+                                                    app.chat_lines.remove(idx);
+                                                }
+                                            }
                                             app.chat_lines.push(ChatLine::Error(format!("{e}")));
                                         }
                                     }
@@ -447,34 +539,47 @@ async fn tui_loop(
                                     let input = std::mem::take(&mut app.input);
                                     if !input.trim().is_empty() {
                                         app.chat_lines.push(ChatLine::User(input.clone()));
-                                        app.is_streaming = true;
-                                        app.chat_lines.push(ChatLine::Thinking("thinking...".into()));
-                                        terminal.draw(|f| app.render(f))?;
 
-                                        match run_turn(provider.as_str(), resolve_api_key(provider).as_deref(), base_url, model.as_str(),
-                                            conversation, &input, registry, system_prompt, max_turns).await
-                                        {
+                                        let mut handler = TuiStreamHandler {
+                                            app: &mut *app,
+                                            terminal: &mut *terminal,
+                                            streaming_line_idx: None,
+                                            accumulated_text: String::new(),
+                                            tools_seen: Vec::new(),
+                                        };
+
+                                        let result = run_turn_streaming(provider.as_str(), resolve_api_key(provider).as_deref(), base_url, model.as_str(),
+                                            conversation, &input, registry, system_prompt, max_turns, &mut handler, Some(permissions.clone())).await;
+
+                                        let handler_accumulated = std::mem::take(&mut handler.accumulated_text);
+                                        let handler_tools_seen = std::mem::take(&mut handler.tools_seen);
+                                        let handler_streaming_idx = handler.streaming_line_idx;
+                                        // handler goes out of scope here, releasing app/terminal borrows
+
+                                        match result {
                                             Ok(turn) => {
-                                                app.chat_lines.pop();
-                                                app.is_streaming = false;
-                                                if !turn.tool_calls_made.is_empty() {
-                                                    for tc in &turn.tool_calls_made {
+                                                for tc in &turn.tool_calls_made {
+                                                    if !handler_tools_seen.contains(tc) {
                                                         app.chat_lines.push(ChatLine::Tool { name: tc.clone(), detail: "executed".into() });
                                                     }
                                                 }
-                                                if !turn.final_text.is_empty() {
+                                                if !turn.final_text.is_empty() && handler_accumulated.is_empty() {
                                                     app.chat_lines.push(ChatLine::Assistant(turn.final_text));
                                                 }
                                                 app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
                                             }
                                             Err(e) => {
-                                                app.chat_lines.pop();
                                                 app.is_streaming = false;
+                                                if let Some(idx) = handler_streaming_idx {
+                                                    if idx < app.chat_lines.len() {
+                                                        app.chat_lines.remove(idx);
+                                                    }
+                                                }
                                                 app.chat_lines.push(ChatLine::Error(format!("{e}")));
                                             }
                                         }
                                         app.chat_lines.push(ChatLine::Spacer);
-                                                app.scroll_to_bottom();
+                                        app.scroll_to_bottom();
                                     }
                                 }
                                 _ => {

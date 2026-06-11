@@ -86,6 +86,10 @@ struct Cli {
     /// Allow dangerous shell commands (rm, dd, curl|sh, etc).
     #[arg(long)]
     dangerous: bool,
+
+    /// Auto-approve all tool permissions (no questions asked).
+    #[arg(long)]
+    yolo: bool,
 }
 
 #[derive(Subcommand)]
@@ -297,6 +301,7 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
         &registry,
         cli.system_prompt.as_deref(),
         cli.max_turns,
+        None,
     )
     .await;
 
@@ -326,6 +331,7 @@ async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
         cli.system_prompt.as_deref(),
         cli.max_turns,
         cli.dangerous,
+        cli.yolo,
     )
     .await
 }
