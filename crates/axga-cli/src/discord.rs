@@ -374,6 +374,11 @@ fn truncate_discord(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}... [truncated]", &s[..max_len])
+        // Find last valid char boundary to avoid panicking on multi-byte UTF-8
+        let mut end = max_len;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}... [truncated]", &s[..end])
     }
 }
