@@ -126,6 +126,27 @@ pub async fn run_discord_bot(
     };
     if !last_ids.is_empty() {
         println!("   Resuming from saved state ({} channels)", last_ids.len());
+    } else {
+        // First run or state not found — seed with latest message IDs
+        // so we don't re-process existing messages
+        println!("   First run — skipping existing messages...");
+        for (ch_id, _ch_name) in &channels {
+            let latest = client
+                .get(format!("https://discord.com/api/v10/channels/{ch_id}/messages?limit=1"))
+                .header("Authorization", format!("Bot {token}"))
+                .send().await
+                .ok()
+                .and_then(|r| r.json::<Vec<serde_json::Value>>().await.ok())
+                .and_then(|msgs| msgs.first().and_then(|m| m["id"].as_str().map(|s| s.to_string())));
+            if let Some(id) = latest {
+                last_ids.insert(ch_id.clone(), id);
+            }
+        }
+        println!("   Seeded {} channels with latest message IDs", last_ids.len());
+        // Save seed state
+        if let Ok(json) = serde_json::to_string(&last_ids) {
+            let _ = std::fs::write(&state_path, json);
+        }
     }
 
     // ── Poll loop ──
