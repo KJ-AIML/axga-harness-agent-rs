@@ -257,7 +257,12 @@ pub async fn run_discord_bot(
                 // Push thread context as system message so LLM knows what's happening
                 if !thread_context.is_empty() {
                     conversation.push(AgentMessage::System {
-                        content: format!("You are axga, a helpful AI agent. Below is the recent conversation in this Discord channel. Respond to the last message, keeping the thread context in mind.\n\n{thread_context}"),
+                        content: format!(
+                            "You are axga, a helpful AI agent. Below is the recent conversation in this Discord channel. Respond to the last message, keeping the thread context in mind.\n\n\
+                             IMPORTANT: Discord does NOT render markdown tables (|col|col|). Use bullet lists or **key: value** pairs instead of tables.\n\
+                             Supported formatting: **bold**, *italic*, `code`, ```code blocks```, > quotes, __underline__, ~~strikethrough~~\n\n\
+                             {thread_context}"
+                        ),
                     });
                 }
                 let registry = axga_core::build_default_registry(
@@ -334,8 +339,7 @@ pub async fn run_discord_bot(
                         } else {
                             response_text
                         };
-                        // Send response — first chunk as embed for nice formatting,
-                        // subsequent chunks as plain text
+                        // Send as plain text (Discord renders bold, italic, code, quotes natively)
                         let chunks = chunk_message(&reply, 1950);
                         for (i, chunk) in chunks.iter().enumerate() {
                             let prefix = if chunks.len() > 1 {
@@ -346,35 +350,10 @@ pub async fn run_discord_bot(
                             let msg = format!("{prefix}{chunk}");
                             println!("🤖 → {msg}");
 
-                            // First chunk: use embed for rich formatting
-                            let payload = if i == 0 && chunks.len() == 1 {
-                                // Single chunk — use embed
-                                serde_json::json!({
-                                    "embeds": [{
-                                        "description": msg,
-                                        "color": 3447003,  // Discord blurple
-                                    }]
-                                })
-                            } else {
-                                // Multi-chunk or follow-up — plain text (embed limit: 4096 chars)
-                                let embed_fits = msg.len() <= 4000;
-                                if embed_fits {
-                                    serde_json::json!({
-                                        "embeds": [{
-                                            "description": msg,
-                                            "color": 3447003,
-                                            "footer": { "text": format!("Part {}/{}", i + 1, chunks.len()) }
-                                        }]
-                                    })
-                                } else {
-                                    serde_json::json!({ "content": msg })
-                                }
-                            };
-
                             let _ = client
                                 .post(format!("https://discord.com/api/v10/channels/{ch_id}/messages"))
                                 .header("Authorization", format!("Bot {token}"))
-                                .json(&payload)
+                                .json(&serde_json::json!({ "content": msg }))
                                 .send()
                                 .await;
                         }
