@@ -18,6 +18,7 @@ mod telegram;
 mod mcp;
 mod onboard;
 mod discord;
+mod daemon;
 
 #[derive(Parser)]
 #[command(name = "axga", version, about = "AI coding agent for 1GB VPS")]
@@ -185,7 +186,19 @@ fn main() -> anyhow::Result<()> {
             };
             discord::run_discord_bot(&cli.provider, api_key.as_deref(), cli.base_url.as_deref(), &cli.model, token, cli.system_prompt.as_deref(), cli.dangerous).await
         }
-        // ── Onboarding wizard (without telegram/discord) ──
+        // ── Daemon mode (background, survives terminal close) ──
+        else if cli.daemon {
+            let api_key = match cli.provider.as_str() {
+                "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
+                    .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok())
+                    .or_else(|| axga_core::load_config().and_then(|c| c.provider.api_key)),
+                "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok()
+                    .or_else(|| axga_core::load_config().and_then(|c| c.provider.api_key)),
+                _ => None,
+            };
+            daemon::run_daemon(&cli.provider, api_key.as_deref(), cli.base_url.as_deref(), &cli.model, cli.system_prompt.as_deref(), cli.max_turns, cli.dangerous).await
+        }
+        // ── Onboarding wizard (without telegram/discord/daemon) ──
         else if cli.onboard {
             onboard::cmd_onboard(&cli).await
         }
