@@ -183,13 +183,13 @@ Total: ~200+ source files
 - [ ] Subagent lifecycle (resource budgets, communication protocol)
 
 ### Phase F: Advanced Features (P2-P3)
-- [ ] Goal/autonomous mode (objective + budget + self-driving)
+- [x] Goal/autonomous mode (objective + budget + self-driving)
 - [ ] Plan mode (read-only → plan review → execute)
 - [ ] Background task system (TaskList/TaskOutput/TaskStop)
 - [ ] Cron scheduler (CronCreate/CronList/CronDelete)
 - [ ] Skills ecosystem (Skills registry, invocation, scoping)
 - [ ] MCP integration as tool source (connect to MCP servers)
-- [ ] AskUserQuestion tool (structured user prompts)
+- [x] AskUserQuestion tool (structured user prompts)
 - [ ] ReadMediaFile tool (image/video/audio reading)
 
 ---
