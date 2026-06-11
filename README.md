@@ -149,21 +149,29 @@ axga doctor --json
 
 |     |     |
 |-----|-----|
-| 🖥️ **TUI** | ratatui interface: scrollbar, markdown rendering, 11 slash commands, vim keys (`j`/`k`/`G`/`gg`) |
+| 🖥️ **TUI** | ratatui interface: real-time streaming, syntax-highlighted code, diff preview, two-line footer, 20+ slash commands, vim keys |
 | 🤖 **Telegram Bot** | Long-polling + webhook modes, typing indicators, session isolation per chat |
+| 🔄 **Real-time Streaming** | Text and tool calls appear character-by-character — no spinner wait |
+| 🔐 **Permissions** | Manual/Auto modes, approval dialogs for write/shell, session-level approval memory |
 | 🧠 **MemCtrl Memory** | Native SQLite-backed memory layer — store, query, forget with confidence scoring and provenance |
-| 🔧 **10 Tools** | Filesystem, shell (denylist-protected), grep, glob, diff, web search, URL fetch, memory |
-| 🚀 **3 Providers** | DeepSeek, OpenAI, Anthropic — swap with `--provider` flag |
+| 🔧 **21 Built-in Tools** | Filesystem, shell (denylist-protected), edit, grep, glob, diff, web search, URL fetch, memory, agent/agent_swarm, background tasks, plan mode, ask user, goal, cron |
+| 🚀 **3 Providers** | DeepSeek, OpenAI, Anthropic — swap at runtime with `/provider` |
 | 📡 **MCP Server** | JSON-RPC 2.0 over stdio — connects to Claude Desktop, Cursor, any MCP client |
-| 💾 **Sessions** | JSONL save/load, resume conversations, auto-summarization after 20 turns |
+| 🎯 **Goal Mode** | Autonomous task execution with budget tracking (tokens/turns/time) |
+| 📋 **Plan Mode** | Read-only exploration → plan review → execute with approval |
+| ⏰ **Cron Scheduler** | Schedule recurring prompts with cron expressions |
+| 💾 **Sessions** | JSONL save/load, resume conversations, LLM-powered auto-compaction, /undo |
 | ⚡ **Resilient** | Exponential backoff on 429/5xx, graceful degradation on tool errors |
 | 📦 **5.8MB Binary** | Musl static build, zero glibc, no runtime dependencies |
 | 🔒 **Memory Safe** | Rust + mimalloc allocator, 19MB peak RSS under full tool load |
 | 🐳 **Docker** | 2-stage Alpine build (`~10MB` image) |
 | 🔌 **Systemd** | Auto-start service with `MemoryMax=200M` |
-| 🔏 **Shell Safety** | Denylist blocks `rm -rf /`, `dd`, `mkfs`, `curl \| sh`, fork bombs. `--dangerous` to bypass. |
+| 🔏 **Shell Safety** | Denylist blocks `rm -rf /`, `dd`, `mkfs`, `curl \| sh`, fork bombs. `--dangerous` to bypass. Permission system for interactive approval. |
+| 🔐 **Sensitive Files** | Blocks access to `.env`, SSH keys, credentials, `.pem`, `.key` |
 | 📊 **Observability** | Health check (`doctor --json`), structured JSON logging (`--json-log`), token tracking |
-| 🕸️ **Browser** (feature-gated) | `BrowserBackend` trait, WebBridge (localhost:10086) + chromiumoxide (headless Chrome) stubs |
+| 🕸️ **Browser** (feature-gated) | Full chromiumoxide backend: navigate, click, fill, JS, screenshot, PDF |
+| 🎨 **Themes** | Dark + light themes, runtime switching with `/theme` |
+| 📏 **Tool Dedup** | Detects repeated tool calls (streak at 3/5/8, force-stop at 12) |
 
 ---
 
@@ -172,17 +180,33 @@ axga doctor --json
 | # | Tool | Description | Safety |
 |---|------|-------------|--------|
 | 1 | `read_file` | Read files (1MB cap, offset/limit, streaming for large) | — |
-| 2 | `write_file` | Write/create files, auto parent dirs | — |
+| 2 | `write_file` | Write/create files, auto parent dirs | 🔒 Permission |
 | 3 | `list_directory` | List directory contents | — |
-| 4 | `execute_shell` | Run shell commands (60s timeout, cross-platform) | 🔒 Denylist |
-| 5 | `grep` | Regex search across files with file filters | — |
-| 6 | `glob` | Find files by pattern (`src/**/*.rs`) | — |
-| 7 | `diff` | Line-by-line unified diff | — |
-| 8 | `memctrl` | SQLite memory layer: add/query/list/forget/doctor | — |
-| 9 | `web_search` | DuckDuckGo search (no API key required) | — |
-| 10 | `fetch_url` | HTTP GET + HTML-to-text extraction | — |
+| 4 | `edit` | Exact string replacement (safer than write_file) | 🔒 Permission |
+| 5 | `execute_shell` | Run shell commands (60s timeout, streaming output, bg mode) | 🔒 Denylist + Permission |
+| 6 | `grep` | Regex search across files with file filters | — |
+| 7 | `glob` | Find files by pattern (`src/**/*.rs`) | — |
+| 8 | `diff` | Line-by-line unified diff | — |
+| 9 | `memctrl` | SQLite memory layer: add/query/list/forget/doctor | — |
+| 10 | `web_search` | DuckDuckGo search (no API key required) | — |
+| 11 | `fetch_url` | HTTP GET + HTML-to-text extraction | 🔒 Permission |
+| 12 | `agent` | Spawn sub-agent with configurable provider/model | 🔒 Permission |
+| 13 | `agent_swarm` | Spawn N agents in parallel with shared prompt | 🔒 Permission |
+| 14 | `task_list` | List background shell tasks | — |
+| 15 | `task_output` | Read output from background task | — |
+| 16 | `task_stop` | Cancel/kill a background task | 🔒 Permission |
+| 17 | `enter_plan_mode` | Enter read-only planning mode | — |
+| 18 | `exit_plan_mode` | Exit plan mode, resume normal tools | — |
+| 19 | `ask_user_question` | Ask structured questions to the user | — |
+| 20 | `create_goal` | Create autonomous goal with budget tracking | — |
+| 21 | `get_goal` | Check goal status and progress | — |
+| 22 | `update_goal` | Update goal status (active/paused/complete/blocked) | — |
+| 23 | `set_goal_budget` | Adjust goal budget (tokens/turns/time) | — |
+| 24 | `cron_create` | Schedule a recurring prompt with cron expression | — |
+| 25 | `cron_list` | List all active cron jobs | — |
+| 26 | `cron_delete` | Delete a cron job | — |
 
-**Slash commands:** `/help` `/quit` `/clear` `/tools` `/history` `/status` `/usage` `/compact` `/version` `/export` `/title`
+**Slash commands:** `/help` `/quit` `/clear` `/tools` `/history` `/status` `/usage` `/compact` `/version` `/export` `/title` `/provider` `/apikey` `/yolo` `/manual` `/theme` `/goal` `/undo`
 
 **Vim keys:** `i` insert • `Esc` normal • `j`/`k` scroll • `G` bottom • `gg` top • `:q` quit • `↑↓` scroll in any mode
 
@@ -200,7 +224,7 @@ axga-shared (types, errors, memory limits)      ← crates.io ready
   └── axga-browser (feature-gated)
 ```
 
-**Data flow:** Input → `run_turn()` → LLM stream → tool execution → conversation update → response
+**Data flow:** Input → `run_turn_streaming()` → LLM stream → real-time TUI updates → tool execution → conversation update → response
 
 **Memory model:**
 | Component | Typical | Peak |
@@ -249,8 +273,12 @@ Binary size: **5.8 MB** (musl, LTO, stripped, `opt-level=s`, `panic=abort`).
 | **Memory layer** | ✅ SQLite (tree-based) | ✅ Auto-learning | ✅ Persistent | ⚠️ Manual | ❌ None |
 | **Telegram** | ✅ Built-in | ✅ Built-in | ✅ Built-in | ❌ No | ❌ No |
 | **MCP Server** | ✅ JSON-RPC stdio | ❌ No | ❌ No | ✅ Built-in | ❌ No |
+| **Plan Mode** | ✅ Read-only → review | ✅ Built-in | ❌ No | ❌ No | ❌ No |
+| **Goal Mode** | ✅ Budget tracked | ✅ Built-in | ❌ No | ❌ No | ❌ No |
+| **Sub-agents** | ✅ Agent/AgentSwarm | ✅ Built-in | ❌ No | ❌ No | ❌ No |
+| **Streaming** | ✅ Real-time to TUI | ✅ Built-in | ✅ Built-in | ✅ Built-in | ✅ Built-in |
 | **Static binary** | ✅ musl | ❌ Node runtime | ❌ Node runtime | ❌ Node runtime | ❌ Node runtime |
-| **Shell safety** | ✅ Denylist | ⚠️ Configurable | ⚠️ Configurable | ⚠️ Ask-user | ⚠️ Ask-user |
+| **Shell safety** | ✅ Denylist + Permission | ⚠️ Configurable | ⚠️ Configurable | ⚠️ Ask-user | ⚠️ Ask-user |
 | **License** | MIT | Apache 2.0 | MIT | Proprietary | MIT |
 
 > AXGA owns the "resource-constrained agent" category. It sacrifices browser convenience and local LLM support for ubiquity on cheap hardware.
@@ -326,7 +354,7 @@ rustup target add x86_64-unknown-linux-musl
 cargo build --release --target x86_64-unknown-linux-musl
 
 # Test
-cargo test --all                                # 14 tests
+cargo test --all                                # 99+ tests
 
 # Lint
 cargo clippy -- -D warnings
