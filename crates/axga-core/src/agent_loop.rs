@@ -558,6 +558,9 @@ pub async fn continue_turn_streaming(
     // Continue the agent loop — let LLM respond with tool results now available
     // This follows the same loop pattern as run_turn_streaming
     for _turn in 0..max_turns {
+        // Ensure all tool calls have corresponding results (safety check)
+        fix_orphaned_tool_calls(conversation);
+
         let tool_defs: Vec<ToolDefinition> = tools
             .names()
             .filter_map(|name| tools.get(name))
@@ -790,6 +793,36 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
+/// Ensure every assistant message's tool_calls have matching tool results.
+/// If orphaned tool calls are found (no matching Tool message in conversation),
+/// pushes placeholder error results. This prevents LLM API 400 errors about
+/// "tool_calls must be followed by tool messages".
+fn fix_orphaned_tool_calls(conversation: &mut Conversation) {
+    use std::collections::HashSet;
+    let messages: Vec<AgentMessage> = conversation.messages().cloned().collect();
+    let mut tool_result_ids: HashSet<String> = HashSet::new();
+
+    for msg in &messages {
+        if let AgentMessage::Tool { tool_call_id, .. } = msg {
+            tool_result_ids.insert(tool_call_id.clone());
+        }
+    }
+
+    for msg in &messages {
+        if let AgentMessage::Assistant { content } = msg {
+            if let Some(calls) = &content.tool_calls {
+                for call in calls {
+                    if !tool_result_ids.contains(&call.id) && !call.id.is_empty() {
+                        conversation.push(AgentMessage::Tool {
+                            tool_call_id: call.id.clone(),
+                            content: "[Tool execution skipped — placeholder for API well-formedness]".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
 /// Make a simple one-shot LLM chat call (no tools, no agent loop).
 ///
 /// Used by the `/compact` slash command to generate context summaries
