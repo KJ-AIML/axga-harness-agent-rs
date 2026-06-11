@@ -154,7 +154,7 @@ axga doctor --json
 | 🔄 **Real-time Streaming** | Text and tool calls appear character-by-character — no spinner wait |
 | 🔐 **Permissions** | Manual/Auto modes, approval dialogs for write/shell, session-level approval memory |
 | 🧠 **MemCtrl Memory** | Native SQLite-backed memory layer — store, query, forget with confidence scoring and provenance |
-| 🔧 **21 Built-in Tools** | Filesystem, shell (denylist-protected), edit, grep, glob, diff, web search, URL fetch, memory, agent/agent_swarm, background tasks, plan mode, ask user, goal, cron |
+| 🔧 **26 Built-in Tools** | Filesystem, shell (denylist-protected), edit, grep, glob, diff, web search, URL fetch, memory, agent/agent_swarm, background tasks, plan mode, ask user, goal, cron |
 | 🚀 **3 Providers** | DeepSeek, OpenAI, Anthropic — swap at runtime with `/provider` |
 | 📡 **MCP Server** | JSON-RPC 2.0 over stdio — connects to Claude Desktop, Cursor, any MCP client |
 | 🎯 **Goal Mode** | Autonomous task execution with budget tracking (tokens/turns/time) |
@@ -354,7 +354,7 @@ rustup target add x86_64-unknown-linux-musl
 cargo build --release --target x86_64-unknown-linux-musl
 
 # Test
-cargo test --all                                # 99+ tests
+cargo test --all                                # 104 tests
 
 # Lint
 cargo clippy -- -D warnings

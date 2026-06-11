@@ -85,6 +85,36 @@ else
     exit 1
 fi
 
+# ── Checksum verification (on archive, before extraction) ──
+verify_checksum() {
+    CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}.sha256"
+    # The CI publishes .tar.gz.sha256 files containing the SHA256 of the archive,
+    # not the binary inside — so we hash the archive file for comparison.
+    if command -v curl >/dev/null 2>&1; then
+        EXPECTED=$(curl -fsSL "$CHECKSUM_URL" 2>/dev/null | awk '{print $1}')
+    elif command -v wget >/dev/null 2>&1; then
+        EXPECTED=$(wget -qO- "$CHECKSUM_URL" 2>/dev/null | awk '{print $1}')
+    fi
+    if [ -z "$EXPECTED" ]; then
+        echo "  (no checksum file found; skipping verification)"
+        return 0
+    fi
+    ACTUAL=$(sha256sum "$TMP_DIR/$ARCHIVE" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$TMP_DIR/$ARCHIVE" 2>/dev/null | awk '{print $1}')
+    if [ -z "$ACTUAL" ]; then
+        echo "  (no sha256sum/shasum available; skipping verification)"
+        return 0
+    fi
+    if [ "$EXPECTED" = "$ACTUAL" ]; then
+        echo "${GREEN}Checksum verified.${NC}"
+    else
+        echo "${RED}Checksum mismatch! Archive may be corrupted or tampered with.${NC}"
+        echo "  Expected: $EXPECTED"
+        echo "  Got:      $ACTUAL"
+        exit 1
+    fi
+}
+verify_checksum
+
 # ── Extract ──
 if ! tar -xzf "$TMP_DIR/$ARCHIVE" -C "$TMP_DIR" 2>/dev/null; then
     echo "${RED}Failed to extract archive. It may be corrupted or in an unexpected format.${NC}"
@@ -107,20 +137,6 @@ install -m 755 "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
 
 echo ""
 echo "${GREEN}axga ${VERSION} installed to ${INSTALL_DIR}/${BINARY_NAME}${NC}"
-
-# ── Checksum (if available) ──
-CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}.sha256"
-if command -v curl >/dev/null 2>&1; then
-    EXPECTED=$(curl -fsSL "$CHECKSUM_URL" 2>/dev/null | awk '{print $1}')
-    if [ -n "$EXPECTED" ]; then
-        ACTUAL=$(sha256sum "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null | awk '{print $1}')
-        if [ "$EXPECTED" = "$ACTUAL" ]; then
-            echo "${GREEN}Checksum verified.${NC}"
-        else
-            echo "${RED}WARNING: Checksum mismatch!${NC}"
-        fi
-    fi
-fi
 
 echo ""
 echo "Run: ${CYAN}axga --help${NC}"

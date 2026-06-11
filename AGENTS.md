@@ -1,6 +1,6 @@
 # AGENTS.md — AXGA Harness Agent (Rust)
 
-Production-grade AI coding agent. **5.8MB binary, 18.7MB peak RSS, runs on 1GB VPS.**
+Production-grade AI coding agent. **~6MB binary, 18.7MB peak RSS, runs on 1GB VPS.**
 
 ## Quick Reference
 
@@ -8,10 +8,10 @@ Production-grade AI coding agent. **5.8MB binary, 18.7MB peak RSS, runs on 1GB V
 |---|---|
 | **Language** | Rust 2024 edition, MSRV 1.88 |
 | **Workspace** | 6 crates (shared, ai, core, tui, cli, browser) |
-| **Binary** | 5.8 MB (musl, static, stripped) |
+| **Binary** | ~6 MB (musl, static, stripped) |
 | **Peak RAM** | 18.7 MB (tested with web search + memctrl + shell) |
 | **Build** | `cargo build --release --target x86_64-unknown-linux-musl` |
-| **Test** | `cargo test --all` (14 tests) |
+| **Test** | `cargo test --all` (104 tests) |
 | **Lint** | `cargo clippy -- -D warnings` |
 | **Release** | `git tag -s v*.*.* && git push origin v*.*.*` (GitHub Actions auto-builds) |
 
@@ -98,10 +98,10 @@ docker run -e DEEPSEEK_API_KEY="sk-..." ghcr.io/kj-aiml/axga --help
 
 ```sh
 # 1. Sign tag
-git tag -s v0.1.0 -m "Release v0.1.0"
+git tag -s v0.1.1 -m "Release v0.1.1"
 
 # 2. Push — GitHub Actions auto-builds + releases
-git push origin v0.1.0
+git push origin v0.1.1
 
 # 3. Verify at https://github.com/KJ-AIML/axga-harness-agent-rs/releases
 ```

@@ -122,7 +122,8 @@ jobs:
             for file in "$dir"/*; do
               fname=$(basename "$file")
               # Rename: axga-<target>.tar.gz → axga-v<version>-<target>.tar.gz
-              # Rename: axga-<target>.sha256 → axga-v<version>-<target>.tar.gz.sha256
+              # Rename: axga-<target>.sha256 → axga-v<version>-<target>.sha256
+              # (the .tar.gz.sha256 files are generated separately below)
               newname=$(echo "$fname" | sed "s/^axga-/axga-v${VERSION}-/")
               cp "$file" "release/$newname"
             done

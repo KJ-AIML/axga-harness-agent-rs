@@ -2,7 +2,7 @@
 # Contributor: KJ-AIML
 
 pkgname=axga
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="5.7MB AI coding agent — runs on 1GB VPS (10 tools, 3 providers, TUI + Telegram)"
 arch=('x86_64' 'aarch64')
@@ -19,7 +19,7 @@ _platform() {
 
 _sha256() {
   case "$CARCH" in
-    x86_64)  echo "c751933392de5941583d8a9ec257ba0fe865740c819f5c36b18c07e7e4f6e6d8" ;;
+    x86_64)  echo "# FILL at release time" ;;
     aarch64) echo "# FILL at release time" ;;
     *)       echo "unsupported"; return 1 ;;
   esac

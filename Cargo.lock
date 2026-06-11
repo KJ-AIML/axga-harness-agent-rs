@@ -139,7 +139,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "axga-ai"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axga-shared",
  "base64",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "axga-browser"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "axga-shared",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "axga-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axga-browser",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "axga-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axga-ai",
  "axga-shared",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "axga-shared"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -227,7 +227,7 @@ dependencies = [
 
 [[package]]
 name = "axga-tui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crossterm",
  "ratatui",
