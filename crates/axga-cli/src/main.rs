@@ -327,10 +327,10 @@ async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
     };
 
     tui_mode::run_tui(
-        &cli.provider,
+        cli.provider.clone(),
         api_key.as_deref(),
         cli.base_url.as_deref(),
-        &cli.model,
+        cli.model.clone(),
         cli.system_prompt.as_deref(),
         cli.max_turns,
         cli.dangerous,

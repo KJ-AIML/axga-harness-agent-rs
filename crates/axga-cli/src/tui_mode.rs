@@ -11,10 +11,10 @@ use ratatui::DefaultTerminal;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_tui(
-    provider: &str,
+    mut provider: String,
     api_key: Option<&str>,
     base_url: Option<&str>,
-    model: &str,
+    mut model: String,
     system_prompt: Option<&str>,
     max_turns: usize,
     dangerous: bool,
@@ -23,7 +23,7 @@ pub async fn run_tui(
     let mut conversation = Conversation::new();
     let mut terminal = ratatui::init();
     let th = theme::dark_theme();
-    let mut app = App::new(model, th);
+    let mut app = App::new(&model, th);
 
     // Welcome
     app.chat_lines.push(ChatLine::Info(format!("axga v{} — {} / {}", env!("CARGO_PKG_VERSION"), provider, model)));
@@ -42,7 +42,7 @@ pub async fn run_tui(
 
     let result = tui_loop(
         &mut terminal, &mut app,
-        provider, api_key, base_url, model,
+        &mut provider, api_key, base_url, &mut model,
         system_prompt, max_turns,
         &mut registry, &mut conversation,
     ).await;
@@ -55,10 +55,10 @@ pub async fn run_tui(
 async fn tui_loop(
     terminal: &mut DefaultTerminal,
     app: &mut App,
-    provider: &str,
+    provider: &mut String,
     api_key: Option<&str>,
     base_url: Option<&str>,
-    model: &str,
+    model: &mut String,
     system_prompt: Option<&str>,
     max_turns: usize,
     registry: &mut ToolRegistry,
@@ -149,6 +149,7 @@ async fn tui_loop(
                                                 app.chat_lines.push(ChatLine::Info("│ /version        Show version             │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /export <file>  Export to markdown       │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /title <text>   Set session title        │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /provider [m]   Show/switch provider/model│".into()));
                                                 app.chat_lines.push(ChatLine::Info("╰──────────────────────────────────────────╯".into()));
                                                 app.chat_lines.push(ChatLine::Info("Keys: ↑↓ scroll | Esc normal | i insert | Ctrl+C quit".into()));
                                             }
@@ -218,6 +219,31 @@ async fn tui_loop(
                                                     app.chat_lines.push(ChatLine::Info(format!("Session title set to: {args}")));
                                                 }
                                             }
+                                            "provider" => {
+                                                let parts: Vec<&str> = args.split_whitespace().collect();
+                                                if parts.is_empty() {
+                                                    app.chat_lines.push(ChatLine::Info(format!("Current: provider={provider}, model={model}")));
+                                                    app.chat_lines.push(ChatLine::Info("Usage: /provider <name> [model]".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /provider deepseek".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /provider deepseek deepseek-v4-flash".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /provider openai gpt-4o-mini".into()));
+                                                } else {
+                                                    let new_provider = parts[0];
+                                                    let new_model = parts.get(1).copied().unwrap_or(
+                                                        match new_provider {
+                                                            "deepseek" => "deepseek-v4-flash",
+                                                            "openai" => "gpt-4o-mini",
+                                                            _ => "gpt-4o-mini",
+                                                        }
+                                                    );
+                                                    *provider = new_provider.to_string();
+                                                    *model = new_model.to_string();
+                                                    app.status.model = model.clone();
+                                                    conversation.reset();
+                                                    app.chat_lines.push(ChatLine::Info(format!("Switched to provider={provider}, model={model}")));
+                                                    app.chat_lines.push(ChatLine::Info("Conversation reset.".into()));
+                                                }
+                                            }
                                             _ => {
                                                 app.chat_lines.push(ChatLine::Error(format!("Unknown: /{cmd}. Try /help")));
                                             }
@@ -235,7 +261,7 @@ async fn tui_loop(
                                     terminal.draw(|f| app.render(f))?;
 
                                     // Run agent
-                                    match run_turn(provider, api_key, base_url, model,
+                                    match run_turn(provider.as_str(), api_key, base_url, model.as_str(),
                                         conversation, &input, registry, system_prompt, max_turns).await
                                     {
                                         Ok(turn) => {
@@ -330,7 +356,7 @@ async fn tui_loop(
                                         app.chat_lines.push(ChatLine::Thinking("thinking...".into()));
                                         terminal.draw(|f| app.render(f))?;
 
-                                        match run_turn(provider, api_key, base_url, model,
+                                        match run_turn(provider.as_str(), api_key, base_url, model.as_str(),
                                             conversation, &input, registry, system_prompt, max_turns).await
                                         {
                                             Ok(turn) => {
