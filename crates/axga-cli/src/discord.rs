@@ -334,7 +334,8 @@ pub async fn run_discord_bot(
                         } else {
                             response_text
                         };
-                        // Split long messages into chunks (Discord 2000 char limit)
+                        // Send response — first chunk as embed for nice formatting,
+                        // subsequent chunks as plain text
                         let chunks = chunk_message(&reply, 1950);
                         for (i, chunk) in chunks.iter().enumerate() {
                             let prefix = if chunks.len() > 1 {
@@ -345,12 +346,35 @@ pub async fn run_discord_bot(
                             let msg = format!("{prefix}{chunk}");
                             println!("🤖 → {msg}");
 
+                            // First chunk: use embed for rich formatting
+                            let payload = if i == 0 && chunks.len() == 1 {
+                                // Single chunk — use embed
+                                serde_json::json!({
+                                    "embeds": [{
+                                        "description": msg,
+                                        "color": 3447003,  // Discord blurple
+                                    }]
+                                })
+                            } else {
+                                // Multi-chunk or follow-up — plain text (embed limit: 4096 chars)
+                                let embed_fits = msg.len() <= 4000;
+                                if embed_fits {
+                                    serde_json::json!({
+                                        "embeds": [{
+                                            "description": msg,
+                                            "color": 3447003,
+                                            "footer": { "text": format!("Part {}/{}", i + 1, chunks.len()) }
+                                        }]
+                                    })
+                                } else {
+                                    serde_json::json!({ "content": msg })
+                                }
+                            };
+
                             let _ = client
-                                .post(format!(
-                                    "https://discord.com/api/v10/channels/{ch_id}/messages"
-                                ))
+                                .post(format!("https://discord.com/api/v10/channels/{ch_id}/messages"))
                                 .header("Authorization", format!("Bot {token}"))
-                                .json(&serde_json::json!({ "content": msg }))
+                                .json(&payload)
                                 .send()
                                 .await;
                         }
