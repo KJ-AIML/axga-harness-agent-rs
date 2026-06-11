@@ -79,6 +79,38 @@ pub enum StreamEvent {
     Error { message: String },
 }
 
+// ─── Multi-Agent Orchestration ────────────────────────────────────
+
+/// Configuration for a sub-agent spawned by the orchestrator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubAgentConfig {
+    /// Provider type (e.g. "openai", "deepseek", "anthropic")
+    pub provider: String,
+    /// Model name (e.g. "gpt-4o-mini", "deepseek-chat")
+    pub model: String,
+    /// API key (inherits from main agent if None)
+    pub api_key: Option<String>,
+    /// Base URL override
+    pub base_url: Option<String>,
+    /// System prompt for this sub-agent
+    pub system_prompt: Option<String>,
+    /// Max turns per sub-agent session
+    pub max_turns: usize,
+}
+
+/// Result from a sub-agent execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubAgentResult {
+    /// The final text response from the sub-agent.
+    pub response: String,
+    /// Total tokens used by the sub-agent.
+    pub tokens_used: u32,
+    /// Number of turns the sub-agent took.
+    pub turns_taken: usize,
+    /// Any error message if the sub-agent failed.
+    pub error: Option<String>,
+}
+
 // ─── Configuration ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -123,4 +123,4 @@ git push origin v0.1.0
 | 3: Scale | Health check, JSON logging, webhook, crates.io | ✅ |
 | 4: Distribution | GitHub Actions, GPG, Homebrew, AUR, README | ✅ |
 | 5: Browser Full | chromiumoxide full implementation (navigate, click, fill, JS, screenshot, PDF, DOM) | ✅ |
-| 6: Multi-agent | Coordinated sub-agent spawning with resource budgets | ⬜ |
+| 6: Multi-agent | Coordinated sub-agent spawning with resource budgets — `axga orchestrate --config agents.json` | ✅ |

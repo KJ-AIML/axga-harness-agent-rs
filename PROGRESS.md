@@ -18,6 +18,8 @@ Comprehensive codebase audit and cleanup. Fixed 3 critical, 10 medium, 9 low iss
 - **Provider trait**: Unified `Provider` trait in `axga-ai`, all 3 providers implement it. `AgentLoop` dispatches through `Box<dyn Provider>`.
 - **Per-tool unit tests**: 36+ new tests across all 7 tool modules (denylist, parameters, memctrl CRUD).
 - **Phase 5 Browser Full**: `HeadlessBackend` fully implemented with chromiumoxide — navigate, click, fill, JS execution, screenshot, PDF, DOM snapshot. Gated behind `--features browser`.
+- **Phase 6 Multi-agent**: `Orchestrator` with `spawn()` and `spawn_all()` — sub-agents with per-agent (provider, model) config, concurrent execution via `tokio::spawn`. CLI: `axga orchestrate --config agents.json --prompt "..."`.
+- **Homebrew tap**: Created `KJ-AIML/homebrew-axga` — `brew tap KJ-AIML/axga && brew install axga`.
 - **Unused deps cleaned**: 7 removed from `axga-tui`.
 - **Unsafe block removed**: Spurious `unsafe` wrapper on `std::env::remove_var`.
 - **README synced**: Fixed "14" → "11" slash commands, removed fake `[security]` config section, added CLI reference table (9 undocumented flags/commands).
@@ -63,8 +65,5 @@ Completed full Rust port of axga-harness-agent. Target: sub-100MB RAM on 1GB VPS
 - DeepSeek API key configured
 
 ### Next Actions
-1. Full chromiumoxide browser implementation (Phase 5)
-2. Multi-agent coordination with resource budgets (Phase 6)
-3. Publish axga-shared, axga-ai, axga-core to crates.io
-4. Create Homebrew tap repo (KJ-AIML/homebrew-axga)
-5. Submit AUR package
+1. Publish axga-shared, axga-ai, axga-core to crates.io
+2. Submit AUR package

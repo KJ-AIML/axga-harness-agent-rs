@@ -8,6 +8,7 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+use axga_shared::types::SubAgentConfig;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -101,6 +102,16 @@ enum Commands {
     },
     /// Start MCP server (stdio transport, JSON-RPC).
     Mcp,
+    /// Run multiple agents with different providers/models.
+    Orchestrate {
+        /// Path to JSON file with agent configurations.
+        #[arg(short, long)]
+        config: String,
+
+        /// Input prompt for all agents.
+        #[arg(short, long)]
+        prompt: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -159,6 +170,7 @@ fn main() -> anyhow::Result<()> {
                 Some(Commands::Config) => cmd_config().await,
                 Some(Commands::Doctor { json }) => cmd_doctor(json).await,
                 Some(Commands::Mcp) => cmd_mcp(cli.dangerous).await,
+                Some(Commands::Orchestrate { config, prompt }) => cmd_orchestrate(&config, &prompt, cli.dangerous).await,
                 None => {
                     if let Some(ref prompt) = cli.prompt {
                         cmd_single_shot(prompt, &cli).await
@@ -219,6 +231,44 @@ async fn cmd_doctor(json: bool) -> anyhow::Result<()> {
 async fn cmd_mcp(dangerous: bool) -> anyhow::Result<()> {
     let registry = axga_core::build_default_registry(dangerous)?;
     mcp::run_mcp_server("mcp", None, "any", &registry).await
+}
+
+async fn cmd_orchestrate(config_path: &str, prompt: &str, dangerous: bool) -> anyhow::Result<()> {
+    use axga_core::Orchestrator;
+
+    let config_file = std::fs::read_to_string(config_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read config file '{config_path}': {e}"))?;
+    let agent_configs: Vec<SubAgentConfig> = serde_json::from_str(&config_file)
+        .map_err(|e| anyhow::anyhow!("Failed to parse config file '{config_path}': {e}"))?;
+
+    let registry = axga_core::build_default_registry(dangerous)?;
+    let orch = Orchestrator::new(registry);
+
+    let config_inputs: Vec<(SubAgentConfig, String)> = agent_configs
+        .into_iter()
+        .map(|c| (c, prompt.to_string()))
+        .collect();
+
+    println!("Spawning {} agents...", config_inputs.len());
+    let results = orch.spawn_all(config_inputs).await;
+
+    for (i, result) in results.iter().enumerate() {
+        match result {
+            Ok(r) => {
+                println!("\n─── Agent {i} ───");
+                println!("Response: {}", r.response);
+                println!("Tokens: {} | Turns: {}", r.tokens_used, r.turns_taken);
+                if let Some(ref err) = r.error {
+                    eprintln!("Error: {err}");
+                }
+            }
+            Err(e) => {
+                eprintln!("Agent {i} failed: {e}");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
