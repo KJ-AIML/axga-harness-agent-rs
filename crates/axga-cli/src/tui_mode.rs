@@ -5,8 +5,8 @@
 
 use axga_tui::app::{App, ChatLine, InputMode, PendingPrompt};
 use axga_tui::theme;
-use axga_core::{Conversation, ToolRegistry, run_turn_streaming, continue_turn_streaming, StreamHandler, load_config, save_config, PermissionManager, PermissionMode};
-use axga_shared::types::ToolCall;
+use axga_core::{Conversation, ToolRegistry, run_turn_streaming, continue_turn_streaming, simple_chat, StreamHandler, load_config, save_config, PermissionManager, PermissionMode};
+use axga_shared::types::{AgentMessage, ToolCall};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::DefaultTerminal;
 use std::sync::Arc;
@@ -376,7 +376,8 @@ async fn tui_loop(
                                                 app.chat_lines.push(ChatLine::Info("│ /history        Session stats            │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /status         Runtime status           │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /usage          Token usage              │".into()));
-                                                app.chat_lines.push(ChatLine::Info("│ /compact        Compact context          │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /undo [N]       Undo last N turns (default 1) │".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /compact        LLM context compaction        │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /version        Show version             │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /export <file>  Export to markdown       │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /title <text>   Set session title        │".into()));
@@ -413,16 +414,95 @@ async fn tui_loop(
                                                 app.chat_lines.push(ChatLine::Info(format!("Messages: {}", conversation.len())));
                                                 app.chat_lines.push(ChatLine::Info(format!("Turns: {}", conversation.turn_count())));
                                             }
-                                            "compact" => {
-                                                let before = conversation.len();
-                                                // Force summarization by pushing dummy messages
-                                                for _ in 0..5 {
-                                                    conversation.push(axga_shared::types::AgentMessage::System {
-                                                        content: "[compacted]".into(),
-                                                    });
+                                            "undo" => {
+                                                let n: usize = args.parse().unwrap_or(1);
+                                                let removed = conversation.undo(n);
+                                                // Also trim chat_lines: remove last N user lines + everything after
+                                                let mut user_count = 0;
+                                                let mut cut_idx = app.chat_lines.len();
+                                                for i in (0..app.chat_lines.len()).rev() {
+                                                    if matches!(app.chat_lines[i], ChatLine::User(_)) {
+                                                        user_count += 1;
+                                                        if user_count >= n {
+                                                            cut_idx = i;
+                                                            break;
+                                                        }
+                                                    }
                                                 }
-                                                let after = conversation.len();
-                                                app.chat_lines.push(ChatLine::Info(format!("Compacted: {before} → {after} messages")));
+                                                app.chat_lines.truncate(cut_idx);
+                                                app.chat_lines.push(ChatLine::Info(format!("Undo: removed {removed} messages")));
+                                            }
+                                            "compact" => {
+                                                let n = (conversation.len() / 2).min(10);
+                                                if n == 0 {
+                                                    app.chat_lines.push(ChatLine::Info("Nothing to compact".into()));
+                                                } else {
+                                                    // Collect the oldest n messages for summarization
+                                                    let old_messages: Vec<AgentMessage> =
+                                                        conversation.messages().take(n).cloned().collect();
+                                                    let mut prompt = String::from(
+                                                        "Please summarize this conversation concisely, preserving key decisions, context, and action items:\n\n",
+                                                    );
+                                                    for msg in &old_messages {
+                                                        match msg {
+                                                            AgentMessage::User { content } => {
+                                                                prompt.push_str(&format!("User: {content}\n"));
+                                                            }
+                                                            AgentMessage::Assistant { content } => {
+                                                                if let Some(ref t) = content.text {
+                                                                    prompt.push_str(&format!("Assistant: {t}\n"));
+                                                                }
+                                                                if let Some(ref calls) = content.tool_calls {
+                                                                    for tc in calls {
+                                                                        prompt.push_str(&format!("[Tool: {}]\n", tc.name));
+                                                                    }
+                                                                }
+                                                            }
+                                                            AgentMessage::System { content } => {
+                                                                prompt.push_str(&format!("System: {content}\n"));
+                                                            }
+                                                            AgentMessage::Tool { tool_call_id, content } => {
+                                                                let snippet = if content.len() > 200 {
+                                                                    &content[..200]
+                                                                } else {
+                                                                    content
+                                                                };
+                                                                prompt.push_str(&format!("Tool[{tool_call_id}]: {snippet}\n"));
+                                                            }
+                                                        }
+                                                    }
+
+                                                    let compact_messages = vec![AgentMessage::User {
+                                                        content: prompt,
+                                                    }];
+                                                    let api_key = resolve_api_key(provider);
+
+                                                    // Block on the async LLM call from within the TUI event loop
+                                                    let result = tokio::task::block_in_place(|| {
+                                                        tokio::runtime::Handle::current().block_on(
+                                                            simple_chat(
+                                                                provider, api_key.as_deref(), base_url, model,
+                                                                &compact_messages, None,
+                                                            ),
+                                                        )
+                                                    });
+
+                                                    match result {
+                                                        Ok(summary) => {
+                                                            let before = conversation.len();
+                                                            let replaced = conversation.compact(summary);
+                                                            app.chat_lines.push(ChatLine::Info(format!(
+                                                                "Compacted: {before} → {} messages (replaced {replaced})",
+                                                                conversation.len()
+                                                            )));
+                                                        }
+                                                        Err(e) => {
+                                                            app.chat_lines.push(ChatLine::Error(format!(
+                                                                "Compaction failed: {e}"
+                                                            )));
+                                                        }
+                                                    }
+                                                }
                                             }
                                             "version" => {
                                                 app.chat_lines.push(ChatLine::Info(format!("axga v{} (rustc {})", env!("CARGO_PKG_VERSION"), option_env!("CARGO_PKG_RUST_VERSION").unwrap_or("unknown"))));

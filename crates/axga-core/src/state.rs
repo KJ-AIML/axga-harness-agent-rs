@@ -128,6 +128,56 @@ impl Conversation {
             content: summary,
         });
     }
+
+    /// Remove the last N user-prompt turns and all subsequent messages.
+    /// Returns the number of messages removed.
+    pub fn undo(&mut self, n: usize) -> usize {
+        if n == 0 || self.messages.is_empty() {
+            return 0;
+        }
+
+        let mut user_count = 0;
+        let mut cut_idx = self.messages.len();
+        for i in (0..self.messages.len()).rev() {
+            if matches!(self.messages[i], AgentMessage::User { .. }) {
+                user_count += 1;
+                if user_count >= n {
+                    cut_idx = i;
+                    break;
+                }
+            }
+        }
+
+        let removed = self.messages.len() - cut_idx;
+        self.messages.truncate(cut_idx);
+        self.turn_count = self.turn_count.saturating_sub(removed);
+        removed
+    }
+
+    /// LLM-powered context compaction.
+    ///
+    /// Replaces the oldest `n = min(10, 50% of total)` messages with a single
+    /// system message containing the LLM-generated `summary`. This is used
+    /// for explicit `/compact` commands; the naive `summarize_oldest()` still
+    /// serves as the automatic hard-cap fallback.
+    ///
+    /// Returns the number of messages replaced (excluding the new System message).
+    pub fn compact(&mut self, summary: String) -> usize {
+        let n = (self.messages.len() / 2).min(10);
+        if n == 0 {
+            return 0;
+        }
+
+        for _ in 0..n {
+            self.messages.pop_front();
+        }
+
+        self.messages.push_front(AgentMessage::System {
+            content: summary,
+        });
+        self.turn_count = self.turn_count.saturating_sub(n);
+        n
+    }
 }
 
 impl Default for Conversation {

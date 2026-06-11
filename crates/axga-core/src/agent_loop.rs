@@ -789,3 +789,44 @@ fn truncate(s: &str, max_len: usize) -> String {
         t
     }
 }
+
+/// Make a simple one-shot LLM chat call (no tools, no agent loop).
+///
+/// Used by the `/compact` slash command to generate context summaries
+/// without going through the full agent turn machinery.
+pub async fn simple_chat(
+    provider_type: &str,
+    api_key: Option<&str>,
+    base_url: Option<&str>,
+    model: &str,
+    messages: &[AgentMessage],
+    system_prompt: Option<&str>,
+) -> AxgaResult<String> {
+    let request = RequestBuilder::new(model, messages)
+        .with_max_tokens(1024);
+
+    let request = if let Some(sys) = system_prompt {
+        request.with_system_prompt(sys)
+    } else {
+        request
+    };
+
+    let provider: Box<dyn Provider> = match provider_type {
+        "openai" => Box::new(axga_ai::providers::openai::OpenAiProvider::new(
+            api_key.map(|s| s.to_string()),
+            base_url.map(|s| s.to_string()),
+        )?),
+        "deepseek" => Box::new(axga_ai::providers::deepseek::DeepSeekProvider::new(
+            api_key.map(|s| s.to_string()),
+            base_url.map(|s| s.to_string()),
+        )?),
+        "anthropic" => Box::new(axga_ai::providers::anthropic::AnthropicProvider::new(
+            api_key.map(|s| s.to_string()),
+        )?),
+        _ => return Err(AxgaError::Config(format!("unknown provider: {provider_type}"))),
+    };
+
+    let stream = provider.stream_chat(&request).await?;
+    let (text, _, _) = collect_stream(stream).await?;
+    Ok(text)
+}

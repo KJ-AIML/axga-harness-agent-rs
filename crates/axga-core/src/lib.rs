@@ -12,7 +12,7 @@ pub mod orchestrator;
 pub mod permission;
 
 pub use state::Conversation;
-pub use agent_loop::{run_turn, run_turn_streaming, continue_turn_streaming, StreamHandler};
+pub use agent_loop::{run_turn, run_turn_streaming, continue_turn_streaming, simple_chat, StreamHandler};
 pub use tools::registry::ToolRegistry;
 pub use tools::Tool;
 pub use config::{Config, load_config, save_config};
