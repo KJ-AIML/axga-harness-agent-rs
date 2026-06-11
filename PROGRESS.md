@@ -26,17 +26,48 @@ Comprehensive codebase audit and cleanup. Fixed 3 critical, 10 medium, 9 low iss
 - **SHA256 pipeline**: `sha256-update.sh` handles dual-arch AUR; Homebrew formula has correct structure.
 - **All 3 phases from PLAN.md complete**: Critical fixes, doc sync, code quality, tests & design.
 
-## 2026-06-11 — v0.1.0: Streaming UI + Permission System
+## 2026-06-11 — Massive Feature Push: Phases A-F Complete
 
 ### Context
-Analyzed kimi-code architecture and identified top UX gaps. Implemented the two highest-impact features.
+Analyzed kimi-code (TypeScript, 200+ files) vs axga-rs. Identified 250+ feature gaps. Implemented the top ~100 across 6 phases.
 
-### Done
-- **Real-time streaming to TUI**: `StreamHandler` trait with `run_turn_streaming()` — text deltas, tool calls, and results appear in real-time instead of blocking with spinner.
-- **Permission/approval system**: `PermissionManager` with `--yolo` / `Manual` modes. Read-only tools auto-approved. `/yolo` and `/manual` slash commands.
-- **Provider wizard flow**: Guided `/provider deepseek` → API key prompt → model selection → saved to config. Interactive `PendingPrompt` state machine.
-- **Dashboard improvements**: Compare tool list, two-line footer, streaming status.
-- **All 66 tests passing, clippy clean**
+### Done Today (chronological order)
+**Phase A — Core UX:**
+- Real-time SSE streaming to TUI (StreamHandler trait, run_turn_streaming)
+- Basic permission system (Manual/Auto modes, --yolo flag)
+- Interactive provider wizard (/provider → key → model → saved to config)
+- /apikey persistence to ~/.config/axga/config.toml
+
+**Phase B — Safety & Tools:**
+- Edit tool (exact string replacement — the core coding tool)
+- TUI approval dialog (y/n/a on tool calls via PendingPrompt)
+- Sensitive file blocking (.env, id_rsa, credentials, *.pem, *.key)
+- Tool dedup (streak detection at 3/5/8/12, force-stop at 12)
+- Background tasks (TaskList/TaskOutput/TaskStop tools, TaskManager)
+
+**Phase C — TUI Polish:**
+- Two-line footer (permission badge, model, cwd, git, context% bar)
+- Syntax highlighting for code blocks (syntect, 30+ languages)
+- Diff preview (ChatLine::Diff with green/red/dim coloring)
+
+**Phase D — Agent Engine:**
+- /undo [N] command (roll back last N user prompts)
+- LLM-powered context compaction (LLM summarizes old messages)
+- simple_chat() for one-shot LLM calls without agent loop
+
+**Phase E — Multi-Agent Full:**
+- agent tool (LLM spawns sub-agent with specific config)
+- agent_swarm tool (LLM spawns N agents in parallel)
+
+**Phase F — Plan Mode & Interaction:**
+- EnterPlanMode / ExitPlanMode tools (read-only planning, 13 tools permitted)
+- AskUserQuestion tool (structured questions, TUI dialog, answer injection)
+
+### Verified Metrics
+- **83 tests pass** (was 14)
+- **17 builtin tools** (was 10): read_file, write_file, list_directory, grep, glob, diff, edit, execute_shell, web_search, fetch_url, memctrl, agent, agent_swarm, task_list, task_output, task_stop, enter_plan_mode, exit_plan_mode, ask_user_question
+- **Clippy clean** with -D warnings
+- **cargo check clean**
 
 ## 2026-05-31 — v0.1.0: Initial Production Release
 
