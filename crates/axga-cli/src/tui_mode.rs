@@ -5,7 +5,7 @@
 
 use axga_tui::app::{App, ChatLine, InputMode};
 use axga_tui::theme;
-use axga_core::{Conversation, ToolRegistry, run_turn};
+use axga_core::{Conversation, ToolRegistry, run_turn, load_config, save_config};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::DefaultTerminal;
 
@@ -51,6 +51,13 @@ pub async fn run_tui(
 }
 
 fn resolve_api_key(provider: &str) -> Option<String> {
+    // 1. Try config file
+    if let Some(config) = load_config() {
+        if let Some(ref key) = config.provider.api_key {
+            return Some(key.clone());
+        }
+    }
+    // 2. Try environment per provider
     match provider {
         "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
             .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
@@ -157,6 +164,7 @@ async fn tui_loop(
                                                 app.chat_lines.push(ChatLine::Info("│ /export <file>  Export to markdown       │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /title <text>   Set session title        │".into()));
                                                 app.chat_lines.push(ChatLine::Info("│ /provider [m]   Show/switch provider/model│".into()));
+                                                app.chat_lines.push(ChatLine::Info("│ /apikey <key>   Save API key to config     │".into()));
                                                 app.chat_lines.push(ChatLine::Info("╰──────────────────────────────────────────╯".into()));
                                                 app.chat_lines.push(ChatLine::Info("Keys: ↑↓ scroll | Esc normal | i insert | Ctrl+C quit".into()));
                                             }
@@ -234,6 +242,9 @@ async fn tui_loop(
                                                     app.chat_lines.push(ChatLine::Info("  /provider deepseek".into()));
                                                     app.chat_lines.push(ChatLine::Info("  /provider deepseek deepseek-v4-flash".into()));
                                                     app.chat_lines.push(ChatLine::Info("  /provider openai gpt-4o-mini".into()));
+                                                    app.chat_lines.push(ChatLine::Info("".into()));
+                                                    app.chat_lines.push(ChatLine::Info("Set API key:".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /apikey sk-...".into()));
                                                 } else {
                                                     let new_provider = parts[0];
                                                     let new_model = parts.get(1).copied().unwrap_or(
@@ -249,6 +260,41 @@ async fn tui_loop(
                                                     conversation.reset();
                                                     app.chat_lines.push(ChatLine::Info(format!("Switched to provider={provider}, model={model}")));
                                                     app.chat_lines.push(ChatLine::Info("Conversation reset.".into()));
+                                                    if resolve_api_key(provider).is_none() {
+                                                        app.chat_lines.push(ChatLine::Error("No API key found. Set it with: /apikey sk-...".into()));
+                                                    }
+                                                }
+                                            }
+                                            "apikey" => {
+                                                if args.is_empty() {
+                                                    app.chat_lines.push(ChatLine::Info("Usage: /apikey <your-api-key>".into()));
+                                                    app.chat_lines.push(ChatLine::Info("  /apikey sk-...".into()));
+                                                    app.chat_lines.push(ChatLine::Info("The key is saved to ~/.config/axga/config.toml".into()));
+                                                } else if let Some(mut config) = load_config() {
+                                                    config.provider.api_key = Some(args.to_string());
+                                                    match save_config(&config) {
+                                                        Ok(_) => {
+                                                            app.chat_lines.push(ChatLine::Info("API key saved to ~/.config/axga/config.toml".into()));
+                                                            app.chat_lines.push(ChatLine::Info(format!("Provider: {provider}, key: {}...", &args[..std::cmp::min(10, args.len())])));
+                                                        }
+                                                        Err(e) => app.chat_lines.push(ChatLine::Error(format!("Failed to save: {e}"))),
+                                                    }
+                                                } else {
+                                                    let config = axga_core::Config {
+                                                        provider: axga_core::config::ProviderSection {
+                                                            provider_type: Some(provider.clone()),
+                                                            model: Some(model.clone()),
+                                                            api_key: Some(args.to_string()),
+                                                            base_url: None,
+                                                            system_prompt: None,
+                                                            max_turns: Some(max_turns),
+                                                        },
+                                                        ..Default::default()
+                                                    };
+                                                    match save_config(&config) {
+                                                        Ok(_) => app.chat_lines.push(ChatLine::Info("API key saved to ~/.config/axga/config.toml".into())),
+                                                        Err(e) => app.chat_lines.push(ChatLine::Error(format!("Failed to save: {e}"))),
+                                                    }
                                                 }
                                             }
                                             _ => {
