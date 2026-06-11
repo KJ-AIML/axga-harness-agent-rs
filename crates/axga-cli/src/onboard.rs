@@ -101,7 +101,18 @@ pub async fn cmd_onboard(_cli: &Cli) -> anyhow::Result<()> {
             }
         }
         "3" => {
-            print!("  Discord bot token (from discord.com/developers): ");
+            println!();
+            println!("  ═══ How to get a Discord Bot Token ═══");
+            println!("  1. Go to https://discord.com/developers/applications");
+            println!("  2. Click 'New Application' → name it (e.g. 'axga')");
+            println!("  3. Go to 'Bot' tab → 'Add Bot' → 'Reset Token' → COPY");
+            println!("  4. Enable 'Message Content Intent' (required!)");
+            println!("  5. Go to 'OAuth2' → 'URL Generator'");
+            println!("     - Scope: 'bot'");
+            println!("     - Permissions: Send Messages, Read Message History");
+            println!("  6. Open the generated URL → invite bot to your server");
+            println!();
+            print!("  Paste your bot token here: ");
             io::stdout().flush()?;
             let mut token = String::new();
             stdin.read_line(&mut token)?;
@@ -112,6 +123,8 @@ pub async fn cmd_onboard(_cli: &Cli) -> anyhow::Result<()> {
                 println!();
                 println!("  Start the bot:");
                 println!("    axga --discord --key {token} --provider {provider}");
+                println!();
+                println!("  Make sure your bot is invited to a server first!");
             }
         }
         "4" => {
