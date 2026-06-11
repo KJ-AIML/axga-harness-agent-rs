@@ -295,6 +295,19 @@ async fn tui_loop(
                                                 config.provider.api_key = Some(input.clone());
                                                 config.provider.provider_type = Some(p.clone());
                                                 let _ = save_config(&config);
+                                            } else {
+                                                let config = axga_core::Config {
+                                                    provider: axga_core::config::ProviderSection {
+                                                        provider_type: Some(p.clone()),
+                                                        model: None,
+                                                        api_key: Some(input.clone()),
+                                                        base_url: None,
+                                                        system_prompt: None,
+                                                        max_turns: None,
+                                                    },
+                                                    ..Default::default()
+                                                };
+                                                let _ = save_config(&config);
                                             }
                                             app.chat_lines.push(ChatLine::Info(format!("API key saved for {p}")));
                                             if let Some(m) = pref_model {
