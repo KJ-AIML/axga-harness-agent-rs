@@ -24,7 +24,16 @@ use axga_shared::error::AxgaResult;
 
 /// Build the default tool registry with all built-in tools.
 /// `dangerous` bypasses shell denylist when true.
-pub fn build_default_registry(dangerous: bool) -> AxgaResult<ToolRegistry> {
+///
+/// When `provider` and `model` are provided, also registers the `agent` and
+/// `agent_swarm` tools so the LLM can spawn single/parallel sub-agents.
+pub fn build_default_registry(
+    dangerous: bool,
+    provider: Option<&str>,
+    model: Option<&str>,
+    api_key: Option<&str>,
+    base_url: Option<&str>,
+) -> AxgaResult<ToolRegistry> {
     use tools::*;
     let mut registry = ToolRegistry::new();
 
@@ -43,5 +52,27 @@ pub fn build_default_registry(dangerous: bool) -> AxgaResult<ToolRegistry> {
     registry.register(task_list::TaskListTool::new(std::sync::Arc::clone(&task_manager)))?;
     registry.register(task_output::TaskOutputTool::new(std::sync::Arc::clone(&task_manager)))?;
     registry.register(task_stop::TaskStopTool::new(std::sync::Arc::clone(&task_manager)))?;
+
+    // Register agent and agent_swarm tools if provider/model info is available.
+    if let (Some(provider), Some(model)) = (provider, model) {
+        let orch = Orchestrator::new(registry.clone());
+        registry.register(agent_swarm::AgentSwarmTool::new(
+            orch,
+            provider.to_string(),
+            model.to_string(),
+            api_key.map(|s| s.to_string()),
+            base_url.map(|s| s.to_string()),
+        ))?;
+
+        let agent_orch = Orchestrator::new(registry.clone());
+        registry.register(agent::AgentTool::new(
+            agent_orch,
+            provider.to_string(),
+            model.to_string(),
+            api_key.map(|s| s.to_string()),
+            base_url.map(|s| s.to_string()),
+        ))?;
+    }
+
     Ok(registry)
 }

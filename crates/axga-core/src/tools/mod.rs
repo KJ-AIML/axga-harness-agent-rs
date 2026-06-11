@@ -14,6 +14,8 @@ pub mod task_manager;
 pub mod task_list;
 pub mod task_output;
 pub mod task_stop;
+pub mod agent;
+pub mod agent_swarm;
 
 use axga_shared::error::AxgaResult;
 use serde_json::Value;

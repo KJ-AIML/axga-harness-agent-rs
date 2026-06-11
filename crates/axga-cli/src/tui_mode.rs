@@ -21,7 +21,14 @@ pub async fn run_tui(
     dangerous: bool,
     yolo: bool,
 ) -> anyhow::Result<()> {
-    let mut registry = axga_core::build_default_registry(dangerous)?;
+    let api_key = resolve_api_key(&provider);
+    let mut registry = axga_core::build_default_registry(
+        dangerous,
+        Some(&provider),
+        Some(&model),
+        api_key.as_deref(),
+        base_url,
+    )?;
     let mut conversation = Conversation::new();
     let mut terminal = ratatui::init();
     let th = theme::dark_theme();

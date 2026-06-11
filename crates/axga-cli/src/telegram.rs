@@ -34,7 +34,13 @@ pub async fn run_telegram_bot(
     tracing::info!(%bot_name, "Telegram bot started");
 
     // Build tool registry
-    let registry = axga_core::build_default_registry(dangerous)?;
+    let registry = axga_core::build_default_registry(
+        dangerous,
+        Some(provider),
+        Some(model),
+        api_key,
+        None, // base_url
+    )?;
     let mut conversation = Conversation::new();
     let mut last_update_id: i64 = 0;
 
