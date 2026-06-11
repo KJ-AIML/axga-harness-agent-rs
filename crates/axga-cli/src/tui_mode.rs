@@ -12,7 +12,6 @@ use ratatui::DefaultTerminal;
 #[allow(clippy::too_many_arguments)]
 pub async fn run_tui(
     mut provider: String,
-    api_key: Option<&str>,
     base_url: Option<&str>,
     mut model: String,
     system_prompt: Option<&str>,
@@ -42,7 +41,7 @@ pub async fn run_tui(
 
     let result = tui_loop(
         &mut terminal, &mut app,
-        &mut provider, api_key, base_url, &mut model,
+        &mut provider, base_url, &mut model,
         system_prompt, max_turns,
         &mut registry, &mut conversation,
     ).await;
@@ -51,12 +50,20 @@ pub async fn run_tui(
     result.map_err(|e| anyhow::anyhow!("{e}"))
 }
 
+fn resolve_api_key(provider: &str) -> Option<String> {
+    match provider {
+        "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
+            .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
+        "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
+        _ => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn tui_loop(
     terminal: &mut DefaultTerminal,
     app: &mut App,
     provider: &mut String,
-    api_key: Option<&str>,
     base_url: Option<&str>,
     model: &mut String,
     system_prompt: Option<&str>,
@@ -261,7 +268,7 @@ async fn tui_loop(
                                     terminal.draw(|f| app.render(f))?;
 
                                     // Run agent
-                                    match run_turn(provider.as_str(), api_key, base_url, model.as_str(),
+                                    match run_turn(provider.as_str(), resolve_api_key(provider).as_deref(), base_url, model.as_str(),
                                         conversation, &input, registry, system_prompt, max_turns).await
                                     {
                                         Ok(turn) => {
@@ -356,7 +363,7 @@ async fn tui_loop(
                                         app.chat_lines.push(ChatLine::Thinking("thinking...".into()));
                                         terminal.draw(|f| app.render(f))?;
 
-                                        match run_turn(provider.as_str(), api_key, base_url, model.as_str(),
+                                        match run_turn(provider.as_str(), resolve_api_key(provider).as_deref(), base_url, model.as_str(),
                                             conversation, &input, registry, system_prompt, max_turns).await
                                         {
                                             Ok(turn) => {

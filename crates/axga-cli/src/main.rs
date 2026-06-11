@@ -319,16 +319,8 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
 }
 
 async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
-    let api_key = match cli.provider.as_str() {
-        "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
-            .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
-        "anthropic" => std::env::var("ANTHROPIC_API_KEY").ok(),
-        _ => None,
-    };
-
     tui_mode::run_tui(
         cli.provider.clone(),
-        api_key.as_deref(),
         cli.base_url.as_deref(),
         cli.model.clone(),
         cli.system_prompt.as_deref(),
