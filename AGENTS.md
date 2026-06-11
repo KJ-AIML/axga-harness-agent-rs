@@ -124,3 +124,9 @@ git push origin v0.1.0
 | 4: Distribution | GitHub Actions, GPG, Homebrew, AUR, README | ✅ |
 | 5: Browser Full | chromiumoxide full implementation (navigate, click, fill, JS, screenshot, PDF, DOM) | ✅ |
 | 6: Multi-agent | Coordinated sub-agent spawning with resource budgets — `axga orchestrate --config agents.json` | ✅ |
+| 7: Streaming UI | Real-time text/tool deltas replacing spinner — `run_turn_streaming()` + `StreamHandler` | ✅ |
+| 8: Permissions | PermissionManager with Manual/Auto modes, `/yolo`, `--yolo`, read-tool auto-approve | ✅ |
+| 9: TUI Polish | Two-line footer, syntax highlighting, model picker, autocomplete, history | ⬜ |
+| 10: Engine Depth | LLM compaction, event-sourced sessions, profiles, undo, plan mode | ⬜ |
+| 11: Multi-agent Full | Agent/AgentSwarm tools, subagent lifecycle, resource budgets | ⬜ |
+| 12: Ecosystem | Skills, MCP-as-source, goal mode, cron, background tasks | ⬜ |
