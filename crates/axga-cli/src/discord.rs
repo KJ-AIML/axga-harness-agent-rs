@@ -103,13 +103,12 @@ pub async fn run_discord_bot(
     println!();
 
     let permissions = Arc::new(PermissionManager::new(
-        if dangerous {
-            PermissionMode::Auto
-        } else {
-            PermissionMode::Manual
-        },
+        if dangerous { PermissionMode::Auto } else { PermissionMode::Manual },
     ));
     let goal_manager = Arc::new(Mutex::new(GoalManager::new()));
+
+    // Per-channel persistent conversations (remember context across messages)
+    let mut conversations: HashMap<String, axga_core::Conversation> = HashMap::new();
 
     // Per-channel last processed message ID to avoid reprocessing
     let state_path = {
@@ -213,9 +212,9 @@ pub async fn run_discord_bot(
                     Err(_) => vec![],
                 };
 
-                // Build context string from history + triggering message
-                let context = build_context(&history, msg, &bot_name);
-
+                // Strip @mention from content, use as user input
+                let user_input = strip_mention(&content, &bot_name);
+                drop(history); // not needed — conversation already has context
                 // ── Show typing indicator ──
                 let typing_url = format!(
                     "https://discord.com/api/v10/channels/{ch_id}/typing"
@@ -226,8 +225,8 @@ pub async fn run_discord_bot(
                     .send()
                     .await;
 
-                // ── Build tool registry and conversation ──
-                let mut conversation = Conversation::new();
+                // ── Build tool registry and use per-channel conversation ──
+                let conversation = conversations.entry(ch_id.clone()).or_insert_with(axga_core::Conversation::new);
                 let registry = axga_core::build_default_registry(
                     dangerous,
                     Some(provider),
@@ -266,8 +265,8 @@ pub async fn run_discord_bot(
                     api_key,
                     base_url,
                     model,
-                    &mut conversation,
-                    &context,
+                    conversation,
+                    &user_input,
                     &registry,
                     system_prompt,
                     10,
@@ -291,7 +290,7 @@ pub async fn run_discord_bot(
                             permissions.approve_all();
                             let _ = axga_core::continue_turn_streaming(
                                 provider, api_key, base_url, model,
-                                &mut conversation, &registry,
+                                conversation, &registry,
                                 system_prompt, 10,
                                 &mut handler, Some(permissions.clone()),
                                 turn.pending_approvals,
