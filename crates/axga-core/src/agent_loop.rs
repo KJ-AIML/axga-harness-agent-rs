@@ -336,6 +336,8 @@ pub async fn run_turn_streaming(
     for turn in 0..max_turns {
         debug!(turn, "agent loop iteration (streaming)");
 
+        fix_orphaned_tool_calls(conversation);
+
         // Build tool definitions from registry
         let tool_defs: Vec<ToolDefinition> = tools
             .names()
