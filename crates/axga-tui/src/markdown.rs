@@ -1,10 +1,16 @@
 //! Minimal markdown renderer for ratatui.
 //!
 //! Converts markdown text into ratatui `Text` with styled spans.
-//! Supports: **bold**, *italic*, `code`, ```code blocks```, - lists, # headings.
+//! Supports: **bold**, *italic*, `code`, ```fenced code blocks``` (with
+//! syntax highlighting via syntect), - lists, # headings, [links](url).
+
+use std::sync::OnceLock;
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
+use syntect::highlighting::{Theme, ThemeSet};
+use syntect::parsing::{SyntaxSet, SyntaxReference};
+
 
 /// Theme tokens for markdown rendering.
 pub struct MarkdownTheme {
@@ -31,11 +37,185 @@ impl Default for MarkdownTheme {
     }
 }
 
+// ── Lazy syntect resources ────────────────────────────────────────────
+
+fn syntax_set() -> &'static SyntaxSet {
+    static SYNTAX: OnceLock<SyntaxSet> = OnceLock::new();
+    SYNTAX.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn highlight_theme() -> &'static Theme {
+    static THEME: OnceLock<Theme> = OnceLock::new();
+    THEME.get_or_init(|| {
+        let ts = ThemeSet::load_defaults();
+        // base16-ocean.dark looks good on most dark terminal backgrounds
+        ts.themes["base16-ocean.dark"].clone()
+    })
+}
+
+/// Convert a syntect `HighlightStyle` into a ratatui `Style`.
+fn to_ratatui_style(s: syntect::highlighting::Style) -> Style {
+    let fg = Color::Rgb(s.foreground.r, s.foreground.g, s.foreground.b);
+    let mut style = Style::default().fg(fg);
+    if s.font_style.contains(syntect::highlighting::FontStyle::BOLD) {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    if s.font_style.contains(syntect::highlighting::FontStyle::ITALIC) {
+        style = style.add_modifier(Modifier::ITALIC);
+    }
+    if s.font_style.contains(syntect::highlighting::FontStyle::UNDERLINE) {
+        style = style.add_modifier(Modifier::UNDERLINED);
+    }
+    style
+}
+
+// ── Public API ────────────────────────────────────────────────────────
+
 /// Render markdown text into ratatui `Text`.
 pub fn render_markdown(md: &str, theme: &MarkdownTheme) -> Text<'static> {
-    let lines: Vec<Line> = md.lines().map(|line| render_line(line, theme)).collect();
+    let mut lines: Vec<Line> = Vec::new();
+    let mut iter = md.lines().peekable();
+
+    while let Some(line) = iter.next() {
+        let trimmed = line.trim();
+
+        // Fenced code block opener: ```lang  or  ~~~~lang
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~~") {
+            let fence_char = &trimmed[..1]; // ` or ~
+            let fence = if fence_char == "`" { "```" } else { "~~~~" };
+            let lang = trimmed
+                .strip_prefix(fence)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+
+            // Collect lines until closing fence
+            let mut code_lines: Vec<&str> = Vec::new();
+            for inner in iter.by_ref() {
+                if inner.trim() == fence {
+                    break; // closing fence
+                }
+                code_lines.push(inner);
+            }
+
+            lines.extend(render_code_block(&code_lines, &lang, theme));
+        } else {
+            lines.push(render_line(line, theme));
+        }
+    }
+
     Text::from(lines)
 }
+
+// ── Diff rendering ────────────────────────────────────────────────────
+
+/// Render a unified-diff snippet.  Lines starting with `+` get
+/// `added_color`, lines starting with `-` get `removed_color`,
+/// everything else gets `neutral_color`.
+pub fn render_diff(
+    text: &str,
+    added_color: Color,
+    removed_color: Color,
+    neutral_color: Color,
+) -> Text<'static> {
+    let lines: Vec<Line> = text
+        .lines()
+        .map(|line| {
+            if line.starts_with('+') {
+                Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(added_color),
+                ))
+            } else if line.starts_with('-') {
+                Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(removed_color),
+                ))
+            } else {
+                Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(neutral_color),
+                ))
+            }
+        })
+        .collect();
+    Text::from(lines)
+}
+
+// ── Code block rendering ──────────────────────────────────────────────
+
+/// Highlight a fenced code block using syntect.  Falls back to plain
+/// styled text when the language is not recognised.
+fn render_code_block(
+    code_lines: &[&str],
+    lang: &str,
+    theme: &MarkdownTheme,
+) -> Vec<Line<'static>> {
+    let syntax = find_syntax(lang);
+    let plain_style = Style::default().fg(theme.code_fg).bg(theme.code_bg);
+
+    let mut out: Vec<Line<'static>> = Vec::with_capacity(code_lines.len() + 1);
+    // Leading border line
+    out.push(Line::from(Span::styled(
+        format!("┌─ {} ─", if lang.is_empty() { "code" } else { lang }),
+        Style::default().fg(theme.list_bullet),
+    )));
+
+    if code_lines.is_empty() {
+        // Closing border
+        out.push(Line::from(Span::styled(
+            "└─".to_string(),
+            Style::default().fg(theme.list_bullet),
+        )));
+        return out;
+    }
+
+    if let Some(syntax) = syntax {
+        let mut highlighter =
+            syntect::easy::HighlightLines::new(syntax, highlight_theme());
+        for &line in code_lines {
+            let styled = highlighter
+                .highlight_line(line, syntax_set())
+                .unwrap_or_else(|_| vec![(syntect::highlighting::Style::default(), line)]);
+            let spans: Vec<Span> = styled
+                .into_iter()
+                .map(|(style, text)| {
+                    Span::styled(text.to_string(), to_ratatui_style(style))
+                })
+                .collect();
+            out.push(Line::from(spans));
+        }
+    } else {
+        for &line in code_lines {
+            out.push(Line::from(Span::styled(
+                line.to_string(),
+                plain_style,
+            )));
+        }
+    }
+
+    // Closing border
+    out.push(Line::from(Span::styled(
+        "└─".to_string(),
+        Style::default().fg(theme.list_bullet),
+    )));
+    out
+}
+
+/// Resolve a language identifier to a syntect `SyntaxReference`.  Common
+/// aliases (e.g. `rs` → Rust, `py` → Python, `js` → JavaScript) are
+/// handled by syntect's built-in extension/name matching.
+fn find_syntax(lang: &str) -> Option<&'static SyntaxReference> {
+    let lang = lang.trim().to_lowercase();
+    if lang.is_empty() {
+        return None;
+    }
+    syntax_set()
+        .find_syntax_by_token(&lang)
+        .or_else(|| syntax_set().find_syntax_by_extension(&lang))
+}
+
+// ── Single-line rendering (unchanged) ─────────────────────────────────
 
 fn render_line(line: &str, theme: &MarkdownTheme) -> Line<'static> {
     let trimmed = line.trim();
@@ -45,12 +225,10 @@ fn render_line(line: &str, theme: &MarkdownTheme) -> Line<'static> {
         return Line::from("");
     }
 
-    // Code block (```)
-    if trimmed.starts_with("```") {
-        return Line::from(vec![Span::styled(
-            trimmed.replacen("```", "", 1).trim().to_string(),
-            Style::default().fg(theme.code_fg).bg(theme.code_bg),
-        )]);
+    // Code block delimiter (stray fence — should not normally reach here,
+    // but keep as safe fallback)
+    if trimmed.starts_with("```") || trimmed.starts_with("~~~~") {
+        return Line::from("");
     }
 
     // Heading (#)

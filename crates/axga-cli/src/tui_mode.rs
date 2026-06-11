@@ -46,6 +46,15 @@ pub async fn run_tui(
         }
     }
 
+    // Set cwd and permission mode on status line
+    if let Ok(cwd) = std::env::current_dir() {
+        let cwd_str = cwd.to_string_lossy().replace('\\', "/");
+        // Strip Windows \\?\ prefix if present
+        let cleaned = cwd_str.strip_prefix("//?/").unwrap_or(&cwd_str);
+        app.status.cwd = cleaned.to_string();
+    }
+    app.status.permission_mode = if yolo { "AUTO".into() } else { "MANUAL".into() };
+
     let result = tui_loop(
         &mut terminal, &mut app,
         &mut provider, base_url, &mut model,
@@ -307,6 +316,7 @@ async fn tui_loop(
                                                             app.chat_lines.push(ChatLine::Tool { name: tc.clone(), detail: "executed".into() });
                                                         }
                                                         app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                                        app.update_context(conversation.len());
                                                         // Handle any new pending approvals
                                                         if !turn.pending_approvals.is_empty() {
                                                             resolved_calls = turn.pending_approvals.clone();
@@ -510,10 +520,12 @@ async fn tui_loop(
                                             }
                                             "yolo" => {
                                                 permissions.set_mode(PermissionMode::Auto);
+                                                app.status.permission_mode = "AUTO".into();
                                                 app.chat_lines.push(ChatLine::Info("YOLO mode: auto-approving all tools".into()));
                                             }
                                             "manual" => {
                                                 permissions.set_mode(PermissionMode::Manual);
+                                                app.status.permission_mode = "MANUAL".into();
                                                 app.chat_lines.push(ChatLine::Info("Manual mode: asking before write/shell tools".into()));
                                             }
                                             _ => {
@@ -561,6 +573,7 @@ async fn tui_loop(
                                                 app.chat_lines.push(ChatLine::Assistant(turn.final_text));
                                             }
                                             app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                            app.update_context(conversation.len());
 
                                             // Handle pending approvals
                                             if !turn.pending_approvals.is_empty() {
@@ -704,6 +717,7 @@ async fn tui_loop(
                                                             app.chat_lines.push(ChatLine::Tool { name: tc.clone(), detail: "executed".into() });
                                                         }
                                                         app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                                        app.update_context(conversation.len());
                                                         if !turn.pending_approvals.is_empty() {
                                                             resolved_calls = turn.pending_approvals.clone();
                                                             pending_approvals_stack = turn.pending_approvals.into_iter().rev().collect();
@@ -760,6 +774,7 @@ async fn tui_loop(
                                                     app.chat_lines.push(ChatLine::Assistant(turn.final_text));
                                                 }
                                                 app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                                app.update_context(conversation.len());
 
                                                 if !turn.pending_approvals.is_empty() {
                                                     app.is_streaming = false;

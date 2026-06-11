@@ -39,12 +39,21 @@ pub struct App {
     scrollbar_state: ScrollbarState,
 }
 
+/// Rough estimate: average tokens per conversation message.
+const CHARS_PER_TOKEN: u32 = 100;
+/// Default max context window (32k tokens).
+const MAX_CONTEXT_TOKENS: u32 = 32768;
+
 #[derive(Debug, Clone)]
 pub struct StatusLine {
     pub model: String,
     pub tokens_used: u32,
     pub memory_mb: f64,
     pub git_branch: Option<String>,
+    pub cwd: String,
+    pub context_pct: u32,
+    pub permission_mode: String,
+    pub background_tasks: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +83,7 @@ pub enum ChatLine {
     Info(String),
     Error(String),
     Thinking(String),
+    Diff(String),
     Spacer,
 }
 
@@ -87,6 +97,10 @@ impl App {
                 tokens_used: 0,
                 memory_mb: 0.0,
                 git_branch: None,
+                cwd: String::new(),
+                context_pct: 0,
+                permission_mode: String::from("MANUAL"),
+                background_tasks: 0,
             },
             mode: InputMode::Insert,
             exit: false,
@@ -130,13 +144,23 @@ impl App {
         self.list_state.selected().unwrap_or(0)
     }
 
+    /// Update context usage percentage from conversation length.
+    pub fn update_context(&mut self, conversation_len: usize) {
+        let estimated = conversation_len as u32 * CHARS_PER_TOKEN;
+        self.status.context_pct = if MAX_CONTEXT_TOKENS > 0 {
+            ((estimated as f64 / MAX_CONTEXT_TOKENS as f64) * 100.0).min(100.0) as u32
+        } else {
+            0
+        };
+    }
+
     pub fn render(&self, f: &mut Frame) {
         let area = f.area();
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
+                Constraint::Length(2),
                 Constraint::Min(3),
                 Constraint::Length(3),
             ])
@@ -148,38 +172,54 @@ impl App {
     }
 
     fn render_status(&self, f: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1)])
+            .split(area);
+
+        self.render_footer_line1(f, chunks[0]);
+        self.render_footer_line2(f, chunks[1]);
+    }
+
+    fn render_footer_line1(&self, f: &mut Frame, area: Rect) {
         let mut parts: Vec<Span> = Vec::new();
 
+        // Permission badge
+        let perm_str = &self.status.permission_mode;
+        let perm_color = if perm_str == "AUTO" { self.theme.warning } else { self.theme.success };
         parts.push(Span::styled(
-            format!(" {} ", self.status.model),
+            format!("[{perm_str}]"),
+            Style::default().fg(perm_color).add_modifier(Modifier::BOLD),
+        ));
+        parts.push(Span::styled(" ", Style::default()));
+
+        // Model
+        parts.push(Span::styled(
+            self.status.model.as_str(),
             Style::default().fg(self.theme.primary).add_modifier(Modifier::BOLD),
         ));
-        parts.push(Span::styled("│", Style::default().fg(self.theme.text_muted)));
-        parts.push(Span::styled(
-            format!(" {} tokens ", self.status.tokens_used),
-            Style::default().fg(self.theme.text_dim),
-        ));
 
-        if self.is_streaming {
-            let spinner = crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
+        // CWD (last 3 segments)
+        if !self.status.cwd.is_empty() {
+            parts.push(Span::styled(" │ ", Style::default().fg(self.theme.text_muted)));
+            let trimmed = trim_cwd(&self.status.cwd);
+            parts.push(Span::styled(trimmed, Style::default().fg(self.theme.text_dim)));
+        }
+
+        // Git branch
+        if let Some(ref branch) = self.status.git_branch {
+            parts.push(Span::styled(" │ ", Style::default().fg(self.theme.text_muted)));
             parts.push(Span::styled(
-                format!(" {spinner} "),
-                Style::default().fg(self.theme.accent),
+                format!("⎇ {branch}"),
+                Style::default().fg(self.theme.text_dim),
             ));
         }
 
-        // Scroll position
-        parts.push(Span::styled("│", Style::default().fg(self.theme.text_muted)));
-        parts.push(Span::styled(
-            format!(" {}/{} ", self.scroll_pos().saturating_add(1), self.chat_lines.len()),
-            Style::default().fg(self.theme.text_dim),
-        ));
-
         let line = Line::from(parts);
-        let status = Paragraph::new(line).style(Style::default().bg(self.theme.status_bar_bg));
-        f.render_widget(status, area);
+        let bg = Paragraph::new(line).style(Style::default().bg(self.theme.status_bar_bg));
+        f.render_widget(bg, area);
 
-        // Mode badge
+        // Mode badge (right-aligned)
         let mode_str = match self.mode {
             InputMode::Insert => "INSERT",
             InputMode::Normal => "NORMAL",
@@ -197,6 +237,64 @@ impl App {
         let mode_area = Rect { x: area.x + mode_x, y: area.y, width: mode_str.len() as u16 + 2, height: 1 };
         f.render_widget(Paragraph::new(Text::from(mode_span)), mode_area);
     }
+
+    fn render_footer_line2(&self, f: &mut Frame, area: Rect) {
+        // Context usage: "context: 45% (1.2k/32k)"
+        let estimated = if MAX_CONTEXT_TOKENS > 0 {
+            format_tokens(self.status.context_pct as u64 * MAX_CONTEXT_TOKENS as u64 / 100)
+        } else {
+            String::from("0")
+        };
+        let max_display = format_tokens(MAX_CONTEXT_TOKENS as u64);
+
+        let mut parts: Vec<Span> = Vec::new();
+
+        // Spinner if streaming
+        if self.is_streaming {
+            let spinner = crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
+            parts.push(Span::styled(
+                format!("{spinner} "),
+                Style::default().fg(self.theme.accent),
+            ));
+        }
+
+        let context_str = format!("context: {}% ({}/{})", self.status.context_pct, estimated, max_display);
+        parts.push(Span::styled(context_str, Style::default().fg(self.theme.text_dim)));
+
+        let line = Line::from(parts);
+        // Right-align the context info
+        let line_width = line.width() as u16;
+        let x = area.x + area.width.saturating_sub(line_width);
+        let right_area = Rect { x, y: area.y, width: line_width.min(area.width), height: 1 };
+        f.render_widget(
+            Paragraph::new(line).style(Style::default().bg(self.theme.status_bar_bg)),
+            right_area,
+        );
+    }
+}
+
+/// Trim a path to its last 3 segments for compact display.
+fn trim_cwd(path: &str) -> String {
+    let sep = if path.contains('\\') { '\\' } else { '/' };
+    let segments: Vec<&str> = path.split(sep).filter(|s| !s.is_empty()).collect();
+    if segments.len() <= 3 {
+        path.to_string()
+    } else {
+        let last3 = &segments[segments.len() - 3..];
+        format!(".../{}/{}/{}", last3[0], last3[1], last3[2])
+    }
+}
+
+/// Format a token count with human-readable suffix (k).
+fn format_tokens(n: u64) -> String {
+    if n >= 1000 {
+        format!("{:.1}k", n as f64 / 1000.0)
+    } else {
+        n.to_string()
+    }
+}
+
+impl App {
 
     fn render_chat(&self, f: &mut Frame, area: Rect) {
         let pad = "  ";
@@ -240,6 +338,15 @@ impl App {
                         Span::styled(format!("{pad}{spinner}  "), Style::default().fg(self.theme.role_thinking)),
                         Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim).add_modifier(Modifier::ITALIC)),
                     ]))
+                }
+                ChatLine::Diff(text) => {
+                    let md_text = markdown::render_diff(
+                        text,
+                        self.theme.diff_added,
+                        self.theme.diff_removed,
+                        self.theme.text_dim,
+                    );
+                    ListItem::new(md_text)
                 }
                 ChatLine::Spacer => {
                     ListItem::new("")

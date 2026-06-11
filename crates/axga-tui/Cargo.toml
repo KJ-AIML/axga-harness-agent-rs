@@ -9,3 +9,4 @@ authors.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 tokio = { workspace = true, features = ["sync", "time"] }
+syntect.workspace = true
