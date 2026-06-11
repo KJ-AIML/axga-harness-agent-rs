@@ -131,12 +131,13 @@ pub async fn run_discord_bot(
         // so we don't re-process existing messages
         println!("   First run — skipping existing messages...");
         for (ch_id, _ch_name) in &channels {
-            let latest = client
+            let resp = client
                 .get(format!("https://discord.com/api/v10/channels/{ch_id}/messages?limit=1"))
                 .header("Authorization", format!("Bot {token}"))
-                .send().await
+                .send().await;
+            let latest = resp
                 .ok()
-                .and_then(|r| r.json::<Vec<serde_json::Value>>().await.ok())
+                .and_then(|r| r.json::<Vec<serde_json::Value>>().ok())
                 .and_then(|msgs| msgs.first().and_then(|m| m["id"].as_str().map(|s| s.to_string())));
             if let Some(id) = latest {
                 last_ids.insert(ch_id.clone(), id);
