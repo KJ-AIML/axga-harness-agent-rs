@@ -140,9 +140,9 @@ fn main() -> anyhow::Result<()> {
             };
             if cli.onboard { cmd_onboard(&cli).await?; println!(); }
             if let Some(ref webhook_url) = cli.webhook_url {
-                telegram::run_telegram_webhook(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref(), webhook_url).await
+                telegram::run_telegram_webhook(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref(), webhook_url, cli.dangerous).await
             } else {
-                telegram::run_telegram_bot(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref()).await
+                telegram::run_telegram_bot(&cli.provider, api_key.as_deref(), &cli.model, token, cli.system_prompt.as_deref(), cli.dangerous).await
             }
         }
         // ── Onboarding wizard (without telegram) ──
@@ -158,7 +158,7 @@ fn main() -> anyhow::Result<()> {
                 Some(Commands::Models) => cmd_models().await,
                 Some(Commands::Config) => cmd_config().await,
                 Some(Commands::Doctor { json }) => cmd_doctor(json).await,
-                Some(Commands::Mcp) => cmd_mcp().await,
+                Some(Commands::Mcp) => cmd_mcp(cli.dangerous).await,
                 None => {
                     if let Some(ref prompt) = cli.prompt {
                         cmd_single_shot(prompt, &cli).await
@@ -216,39 +216,16 @@ async fn cmd_doctor(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_mcp() -> anyhow::Result<()> {
-    use axga_core::tools::{fs, shell, code, memctrl_native, web_search, fetch_url};
-    use axga_core::tools::registry::ToolRegistry;
-    let mut registry = ToolRegistry::new();
-    registry.register(fs::ReadFileTool)?;
-    registry.register(fs::WriteFileTool)?;
-    registry.register(fs::ListDirectoryTool)?;
-    registry.register(shell::ShellTool::new(false))?;
-    registry.register(code::GrepTool)?;
-    registry.register(code::GlobTool)?;
-    registry.register(code::DiffTool)?;
-    registry.register(memctrl_native::MemCtrlTool::new()?)?;
-    registry.register(web_search::WebSearchTool)?;
-    registry.register(fetch_url::FetchUrlTool)?;
+async fn cmd_mcp(dangerous: bool) -> anyhow::Result<()> {
+    let registry = axga_core::build_default_registry(dangerous)?;
     mcp::run_mcp_server("mcp", None, "any", &registry).await
 }
 
 async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
-    use axga_core::{Conversation, ToolRegistry, run_turn};
-    use axga_core::tools::{fs, shell, code, memctrl_native, web_search, fetch_url};
+    use axga_core::{Conversation, run_turn};
 
     // Build tool registry
-    let mut registry = ToolRegistry::new();
-    registry.register(fs::ReadFileTool)?;
-    registry.register(fs::WriteFileTool)?;
-    registry.register(fs::ListDirectoryTool)?;
-    registry.register(shell::ShellTool::new(false))?;
-    registry.register(code::GrepTool)?;
-    registry.register(code::GlobTool)?;
-    registry.register(code::DiffTool)?;
-    registry.register(memctrl_native::MemCtrlTool::new()?)?;
-    registry.register(web_search::WebSearchTool)?;
-    registry.register(fetch_url::FetchUrlTool)?;
+    let registry = axga_core::build_default_registry(cli.dangerous)?;
     let api_key = match cli.provider.as_str() {
         "openai" | "deepseek" => std::env::var("OPENAI_API_KEY").ok()
             .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok()),
@@ -283,7 +260,7 @@ async fn cmd_single_shot(prompt: &str, cli: &Cli) -> anyhow::Result<()> {
             }
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
     }
@@ -306,6 +283,7 @@ async fn cmd_interactive(cli: &Cli) -> anyhow::Result<()> {
         &cli.model,
         cli.system_prompt.as_deref(),
         cli.max_turns,
+        cli.dangerous,
     )
     .await
 }
@@ -346,8 +324,8 @@ fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
     let provider = cli.provider.clone();
     let model = cli.model.clone();
 
-    println!("Spawning sub-agent with prompt: {}", prompt);
-    println!("Provider: {}, Model: {}", provider, model);
+    println!("Spawning sub-agent with prompt: {prompt}");
+    println!("Provider: {provider}, Model: {model}");
 
     // Detect terminal
     let terminal = if std::env::var("TMUX").is_ok() {
@@ -364,7 +342,7 @@ fn cmd_spawn(cli: &Cli, prompt: &str) -> anyhow::Result<()> {
                 "tmux split-window -h -c \"$(pwd)\" \"{} --provider {} --model {} --prompt '{}'\"",
                 current_exe.display(), provider, model, prompt
             );
-            println!("→ Spawning via tmux: {}", cmd);
+            println!("→ Spawning via tmux: {cmd}");
             std::process::Command::new("bash").arg("-c").arg(&cmd).spawn()?;
             Ok(())
         }

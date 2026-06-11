@@ -47,7 +47,7 @@ pub async fn execute_tool_calls(
             Some(Err(e)) => {
                 results.push(ToolResult {
                     tool_call_id: String::new(),
-                    content: format!("Error: {}", e),
+                    content: format!("Error: {e}"),
                     is_error: true,
                 });
             }

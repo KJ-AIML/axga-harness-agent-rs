@@ -2,6 +2,7 @@
 //!
 //! Format: one JSON object per line, each line is an AgentMessage.
 
+use axga_shared::error::{AxgaError, AxgaResult};
 use axga_shared::types::AgentMessage;
 use std::path::PathBuf;
 
@@ -14,13 +15,21 @@ pub fn save_session(messages: &[AgentMessage], path: &PathBuf) -> std::io::Resul
     for msg in messages {
         let json = serde_json::to_string(msg).unwrap_or_default();
         use std::io::Write;
-        writeln!(file, "{}", json)?;
+        writeln!(file, "{json}")?;
     }
     Ok(())
 }
 
 /// Load a conversation from a JSONL file.
-pub fn load_session(path: &PathBuf) -> std::io::Result<Vec<AgentMessage>> {
+pub fn load_session(path: &PathBuf) -> AxgaResult<Vec<AgentMessage>> {
+    let meta = std::fs::metadata(path)?;
+    if meta.len() > 1024 * 1024 {
+        return Err(AxgaError::FileTooLarge {
+            path: path.to_string_lossy().to_string(),
+            size: meta.len(),
+            limit: 1024 * 1024,
+        });
+    }
     let content = std::fs::read_to_string(path)?;
     let messages: Vec<AgentMessage> = content
         .lines()
@@ -35,7 +44,7 @@ pub fn list_sessions(sessions_dir: &PathBuf) -> Vec<String> {
     if let Ok(entries) = std::fs::read_dir(sessions_dir) {
         entries
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "jsonl"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
             .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
             .collect()
     } else {

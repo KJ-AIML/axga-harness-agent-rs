@@ -2,9 +2,12 @@
 
 use axga_shared::error::{AxgaError, AxgaResult};
 use axga_shared::types::{AgentMessage, StreamEvent, ToolDefinition};
+use crate::request::RequestBuilder;
 use crate::stream::SseStream;
+use crate::providers::Provider;
 use futures::Stream;
 use reqwest::Client;
+use std::future::Future;
 use std::pin::Pin;
 
 #[derive(Clone)]
@@ -26,7 +29,7 @@ impl AnthropicProvider {
         Ok(Self { client, api_key })
     }
 
-    pub async fn stream_chat(
+    pub async fn stream_chat_inner(
         &self,
         model: &str,
         messages: &[AgentMessage],
@@ -85,5 +88,22 @@ impl AnthropicProvider {
             buffer: String::with_capacity(4096),
             done: false,
         }))
+    }
+}
+
+impl Provider for AnthropicProvider {
+    fn stream_chat(
+        &self,
+        request: &RequestBuilder,
+    ) -> Pin<Box<dyn Future<Output = AxgaResult<Pin<Box<dyn Stream<Item = AxgaResult<StreamEvent>> + Send>>>> + Send>> {
+        let this = self.clone();
+        let model = request.model.clone();
+        let messages = request.original_messages.clone();
+        let system_prompt = request.system_prompt.clone();
+        let tools = request.original_tools.clone();
+        let max_tokens = request.max_tokens;
+        Box::pin(async move {
+            this.stream_chat_inner(&model, &messages, system_prompt.as_deref(), &tools, max_tokens).await
+        })
     }
 }

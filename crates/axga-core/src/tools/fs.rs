@@ -124,3 +124,48 @@ impl Tool for ListDirectoryTool {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_file_tool_name() {
+        let tool = ReadFileTool;
+        assert_eq!(tool.name(), "read_file");
+    }
+
+    #[test]
+    fn read_file_tool_description() {
+        let tool = ReadFileTool;
+        assert!(tool.description().contains("1MB"));
+    }
+
+    #[test]
+    fn write_file_tool_name() {
+        let tool = WriteFileTool;
+        assert_eq!(tool.name(), "write_file");
+    }
+
+    #[test]
+    fn list_directory_tool_name() {
+        let tool = ListDirectoryTool;
+        assert_eq!(tool.name(), "list_directory");
+    }
+
+    #[test]
+    fn read_file_parameters_require_path() {
+        let tool = ReadFileTool;
+        let params = tool.parameters();
+        assert!(params["required"].as_array().unwrap().contains(&serde_json::Value::String("path".into())));
+    }
+
+    #[test]
+    fn write_file_parameters_require_path_and_content() {
+        let tool = WriteFileTool;
+        let params = tool.parameters();
+        let req = params["required"].as_array().unwrap();
+        assert!(req.contains(&serde_json::Value::String("path".into())));
+        assert!(req.contains(&serde_json::Value::String("content".into())));
+    }
+}

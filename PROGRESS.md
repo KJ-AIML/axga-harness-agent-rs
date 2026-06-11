@@ -1,5 +1,28 @@
 # Progress — Per-Session Handoff Log
 
+## 2026-06-11 — v0.1.0: Hardening & Docs Sync
+
+### Context
+Comprehensive codebase audit and cleanup. Fixed 3 critical, 10 medium, 9 low issues across all crates, scripts, and docs.
+
+### Done
+- **`--dangerous` wired**: Flag now flows from CLI → `build_default_registry()` → `ShellTool::new()`. No longer a dead flag.
+- **AUR PKGBUILD fixed**: Dual-arch SHA256 support via `_sha256()` function.
+- **`scripts/github-release.sh` deleted**: Superseded by CI workflow (6 targets).
+- **`build_registry()` extracted**: 4 duplicate registration sites unified into `axga_core::build_default_registry(dangerous)`.
+- **`gg` scroll-to-top**: Double-tap `g` in TUI normal mode scrolls to top.
+- **`session.rs` memory check**: 1MB size guard before `read_to_string` (adheres to project memory rule #1).
+- **Feature gates**: `axga-core` has `memctrl-native` (default) and `memctrl-cli` features.
+- **Dead code removed**: `memctrl.rs` (CLI-based, superseded), `events.rs` (deprecated), `light_theme()` (unused).
+- **DeepSeek provider module**: Dedicated `axga_ai::providers::deepseek` — no longer an invisible alias.
+- **Provider trait**: Unified `Provider` trait in `axga-ai`, all 3 providers implement it. `AgentLoop` dispatches through `Box<dyn Provider>`.
+- **Per-tool unit tests**: 36+ new tests across all 7 tool modules (denylist, parameters, memctrl CRUD).
+- **Unused deps cleaned**: 7 removed from `axga-tui`.
+- **Unsafe block removed**: Spurious `unsafe` wrapper on `std::env::remove_var`.
+- **README synced**: Fixed "14" → "11" slash commands, removed fake `[security]` config section, added CLI reference table (9 undocumented flags/commands).
+- **SHA256 pipeline**: `sha256-update.sh` handles dual-arch AUR; Homebrew formula has correct structure.
+- **All 3 phases from PLAN.md complete**: Critical fixes, doc sync, code quality, tests & design.
+
 ## 2026-05-31 — v0.1.0: Initial Production Release
 
 ### Context
@@ -29,8 +52,9 @@ Completed full Rust port of axga-harness-agent. Target: sub-100MB RAM on 1GB VPS
 
 ### Repo State
 - `main` @ `83b0a49`
-- `cargo test --all`: 14 pass, 0 fail
-- `cargo check`: clean (9 warnings, auto-fixable)
+- `cargo test --all`: **53 pass, 0 fail** (was 14)
+- `cargo clippy -- -D warnings`: **clean** (was 9+ warnings)
+- `cargo check`: **clean** (was 9 warnings)
 - Working tree clean
 
 ### Live Services
@@ -38,9 +62,8 @@ Completed full Rust port of axga-harness-agent. Target: sub-100MB RAM on 1GB VPS
 - DeepSeek API key configured
 
 ### Next Actions
-1. Fix 9 cargo warnings (`cargo fix --bin axga`)
-2. Full chromiumoxide browser implementation (Phase 5)
-3. Multi-agent coordination with resource budgets (Phase 6)
-4. Publish axga-shared, axga-ai, axga-core to crates.io
-5. Create Homebrew tap repo (KJ-AIML/homebrew-axga)
-6. Submit AUR package
+1. Full chromiumoxide browser implementation (Phase 5)
+2. Multi-agent coordination with resource budgets (Phase 6)
+3. Publish axga-shared, axga-ai, axga-core to crates.io
+4. Create Homebrew tap repo (KJ-AIML/homebrew-axga)
+5. Submit AUR package

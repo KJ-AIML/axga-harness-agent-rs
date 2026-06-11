@@ -80,7 +80,7 @@ fn render_line(line: &str, theme: &MarkdownTheme) -> Line<'static> {
         let content = render_inline(&item, theme);
         let num = trimmed.split('.').next().unwrap_or("1");
         let mut spans = vec![Span::styled(
-            format!("  {}. ", num),
+            format!("  {num}. "),
             Style::default().fg(theme.list_bullet),
         )];
         spans.extend(content.spans);

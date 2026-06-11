@@ -7,8 +7,7 @@
 //! 2. Starts long-polling getUpdates
 //! 3. Each incoming message → runs agent → sends reply
 
-use axga_core::{Conversation, ToolRegistry, run_turn};
-use axga_core::tools::{fs, shell, code, memctrl_native, web_search, fetch_url};
+use axga_core::{Conversation, run_turn};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -18,11 +17,12 @@ pub async fn run_telegram_bot(
     model: &str,
     token: &str,
     system_prompt: Option<&str>,
+    dangerous: bool,
 ) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
 
     // Validate token
-    let me_url = format!("https://api.telegram.org/bot{}/getMe", token);
+    let me_url = format!("https://api.telegram.org/bot{token}/getMe");
     let me: Value = client.get(&me_url).send().await?.json().await?;
 
     if !me["ok"].as_bool().unwrap_or(false) {
@@ -33,22 +33,12 @@ pub async fn run_telegram_bot(
     tracing::info!(%bot_name, "Telegram bot started");
 
     // Build tool registry
-    let mut registry = ToolRegistry::new();
-    registry.register(fs::ReadFileTool)?;
-    registry.register(fs::WriteFileTool)?;
-    registry.register(fs::ListDirectoryTool)?;
-    registry.register(shell::ShellTool::new(false))?;
-    registry.register(code::GrepTool)?;
-    registry.register(code::GlobTool)?;
-    registry.register(code::DiffTool)?;
-    registry.register(memctrl_native::MemCtrlTool::new()?)?;
-    registry.register(web_search::WebSearchTool)?;
-    registry.register(fetch_url::FetchUrlTool)?;
+    let registry = axga_core::build_default_registry(dangerous)?;
     let mut conversation = Conversation::new();
     let mut last_update_id: i64 = 0;
 
-    println!("🤖 Telegram bot @{} is running. Press Ctrl+C to stop.", bot_name);
-    println!("   Send a message to @{} on Telegram.", bot_name);
+    println!("🤖 Telegram bot @{bot_name} is running. Press Ctrl+C to stop.");
+    println!("   Send a message to @{bot_name} on Telegram.");
     println!("   Tokens checked: {}", token.chars().take(8).collect::<String>());
     println!();
 
@@ -86,8 +76,7 @@ pub async fn run_telegram_bot(
 
                             // Show typing indicator
                             let _ = client.post(format!(
-                                "https://api.telegram.org/bot{}/sendChatAction",
-                                token
+                                "https://api.telegram.org/bot{token}/sendChatAction"
                             ))
                             .json(&serde_json::json!({
                                 "chat_id": chat_id,
@@ -111,8 +100,7 @@ pub async fn run_telegram_bot(
                                     };
 
                                     let _ = client.post(format!(
-                                        "https://api.telegram.org/bot{}/sendMessage",
-                                        token
+                                        "https://api.telegram.org/bot{token}/sendMessage"
                                     ))
                                     .json(&serde_json::json!({
                                         "chat_id": chat_id,
@@ -126,8 +114,7 @@ pub async fn run_telegram_bot(
                                 }
                                 Err(e) => {
                                     let _ = client.post(format!(
-                                        "https://api.telegram.org/bot{}/sendMessage",
-                                        token
+                                        "https://api.telegram.org/bot{token}/sendMessage"
                                     ))
                                     .json(&serde_json::json!({
                                         "chat_id": chat_id,
@@ -162,15 +149,16 @@ fn truncate_telegram(text: &str) -> String {
 pub async fn run_telegram_webhook(
     _provider: &str, _api_key: Option<&str>, _model: &str,
     token: &str, _system_prompt: Option<&str>, webhook_url: &str,
+    _dangerous: bool,
 ) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
-    let set_url = format!("https://api.telegram.org/bot{}/setWebhook?url={}", token, webhook_url);
+    let set_url = format!("https://api.telegram.org/bot{token}/setWebhook?url={webhook_url}");
     let resp: Value = client.get(&set_url).send().await?.json().await?;
     if resp["ok"].as_bool().unwrap_or(false) {
-        println!("Webhook set to {}", webhook_url);
+        println!("Webhook set to {webhook_url}");
     } else {
         anyhow::bail!("Failed to set webhook: {}", resp["description"].as_str().unwrap_or("unknown"));
     }
-    println!("Webhook mode active. Use nginx/caddy reverse proxy to {}", webhook_url);
+    println!("Webhook mode active. Use nginx/caddy reverse proxy to {webhook_url}");
     Ok(())
 }

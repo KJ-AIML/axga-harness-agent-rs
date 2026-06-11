@@ -32,6 +32,7 @@ pub struct App {
     pub spinner_idx: usize,
     pub is_streaming: bool,
     pub cursor_pos: usize,
+    pub pending_gg: bool,
     markdown_theme: MarkdownTheme,
     list_state: ListState,
     scrollbar_state: ScrollbarState,
@@ -80,6 +81,7 @@ impl App {
             spinner_idx: 0,
             is_streaming: false,
             cursor_pos: 0,
+            pending_gg: false,
             markdown_theme: MarkdownTheme::default(),
             list_state: ListState::default(),
             scrollbar_state: ScrollbarState::default(),
@@ -92,6 +94,14 @@ impl App {
         let new = (current + delta).max(0);
         self.list_state.select(Some(new as usize));
         self.scrollbar_state = self.scrollbar_state.position(new as usize);
+        self.pending_gg = false;
+    }
+
+    /// Scroll to the top (earliest content).
+    pub fn scroll_to_top(&mut self) {
+        self.list_state.select(Some(0));
+        self.scrollbar_state = self.scrollbar_state.position(0);
+        self.pending_gg = false;
     }
 
     /// Scroll to the bottom (latest content).
@@ -139,7 +149,7 @@ impl App {
         if self.is_streaming {
             let spinner = crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
             parts.push(Span::styled(
-                format!(" {} ", spinner),
+                format!(" {spinner} "),
                 Style::default().fg(self.theme.accent),
             ));
         }
@@ -162,7 +172,7 @@ impl App {
             InputMode::Command => "CMD",
         };
         let mode_span = Span::styled(
-            format!(" {} ", mode_str),
+            format!(" {mode_str} "),
             Style::default().fg(self.theme.status_bar_fg).bg(match self.mode {
                 InputMode::Insert => self.theme.primary,
                 InputMode::Normal => self.theme.text_muted,
@@ -182,7 +192,7 @@ impl App {
             match chat_line {
                 ChatLine::User(text) => {
                     ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}✦  ", pad), Style::default().fg(self.theme.role_user).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("{pad}✦  "), Style::default().fg(self.theme.role_user).add_modifier(Modifier::BOLD)),
                         Span::styled(text.as_str(), Style::default().fg(self.theme.text)),
                     ]))
                 }
@@ -192,7 +202,7 @@ impl App {
                 }
                 ChatLine::Tool { name, detail } => {
                     ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}⚙  ", pad), Style::default().fg(self.theme.role_tool)),
+                        Span::styled(format!("{pad}⚙  "), Style::default().fg(self.theme.role_tool)),
                         Span::styled(name.as_str(), Style::default().fg(self.theme.role_tool).add_modifier(Modifier::BOLD)),
                         Span::styled(" → ", Style::default().fg(self.theme.text_muted)),
                         Span::styled(detail.as_str(), Style::default().fg(self.theme.text_dim)),
@@ -200,20 +210,20 @@ impl App {
                 }
                 ChatLine::Info(text) => {
                     ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}ℹ  ", pad), Style::default().fg(self.theme.text_muted)),
+                        Span::styled(format!("{pad}ℹ  "), Style::default().fg(self.theme.text_muted)),
                         Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim)),
                     ]))
                 }
                 ChatLine::Error(text) => {
                     ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}✗  ", pad), Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("{pad}✗  "), Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
                         Span::styled(text.as_str(), Style::default().fg(self.theme.error)),
                     ]))
                 }
                 ChatLine::Thinking(text) => {
                     let spinner = crate::theme::SPINNER_FRAMES[self.spinner_idx % crate::theme::SPINNER_FRAMES.len()];
                     ListItem::new(Line::from(vec![
-                        Span::styled(format!("{}{}  ", pad, spinner), Style::default().fg(self.theme.role_thinking)),
+                        Span::styled(format!("{pad}{spinner}  "), Style::default().fg(self.theme.role_thinking)),
                         Span::styled(text.as_str(), Style::default().fg(self.theme.text_dim).add_modifier(Modifier::ITALIC)),
                     ]))
                 }
@@ -239,7 +249,7 @@ impl App {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None);
-        let mut scrollbar_state = self.scrollbar_state.clone()
+        let mut scrollbar_state = self.scrollbar_state
             .content_length(self.chat_lines.len());
         let scrollbar_area = Rect {
             x: area.x + area.width.saturating_sub(2),

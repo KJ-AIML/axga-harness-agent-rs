@@ -117,7 +117,7 @@ pub fn load_config() -> Option<Config> {
 pub fn save_config(config: &Config) -> std::io::Result<()> {
     let dir = dirs_config().join("axga");
     std::fs::create_dir_all(&dir)?;
-    let content = toml::to_string_pretty(config).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let content = toml::to_string_pretty(config).map_err(std::io::Error::other)?;
     std::fs::write(dir.join("config.toml"), content)
 }
 

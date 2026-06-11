@@ -84,7 +84,7 @@ fn parse_ddg_html(html: &str, max: usize) -> Vec<String> {
                         };
 
                         let title = &href_chunk[..href_end];
-                        results.push(format!("- **{}**\n  {}", title, snippet));
+                        results.push(format!("- **{title}**\n  {snippet}"));
                         i += start + href_start + 6 + href_end;
                         continue;
                     }
@@ -95,4 +95,37 @@ fn parse_ddg_html(html: &str, max: usize) -> Vec<String> {
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_empty_html_returns_no_results() {
+        let result = parse_ddg_html("", 5);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_html_no_results_block_returns_empty() {
+        // HTML with no result__title divs should yield empty results
+        let html = "<html><body><p>No results here</p></body></html>";
+        let result = parse_ddg_html(html, 5);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn web_search_tool_name() {
+        let tool = WebSearchTool;
+        assert_eq!(tool.name(), "web_search");
+    }
+
+    #[test]
+    fn urlencoding_replaces_spaces() {
+        assert_eq!(urlencoding("hello world"), "hello+world");
+        assert_eq!(urlencoding("test"), "test");
+        assert_eq!(urlencoding(""), "");
+        assert_eq!(urlencoding("a b c"), "a+b+c");
+    }
 }

@@ -129,13 +129,27 @@ axga --telegram --key "YOUR_BOT_TOKEN" --provider deepseek --model deepseek-chat
 axga doctor --json
 ```
 
+**CLI Reference:**
+
+| Flag / Command | Description |
+|----------------|-------------|
+| `--base-url <URL>` | Override API base URL (e.g., `https://api.openai.com/v1`) |
+| `--system-prompt <TEXT>` | Custom system prompt for the agent |
+| `--max-turns <N>` | Max conversation turns before auto-summarize (default: 10) |
+| `--dir <PATH>` | Working directory for tool operations |
+| `--verbose` / `-v` | Enable verbose logging |
+| `--onboard` | Run the onboarding/interactive setup wizard |
+| `axga models` | List available models for the configured provider |
+| `axga config` | Show current resolved configuration |
+| `axga mcp` | Start the MCP server (JSON-RPC over stdio) |
+
 ---
 
 ## ✨ Features
 
 |     |     |
 |-----|-----|
-| 🖥️ **TUI** | ratatui interface: scrollbar, markdown rendering, 14 slash commands, vim keys (`j`/`k`/`G`/`gg`) |
+| 🖥️ **TUI** | ratatui interface: scrollbar, markdown rendering, 11 slash commands, vim keys (`j`/`k`/`G`/`gg`) |
 | 🤖 **Telegram Bot** | Long-polling + webhook modes, typing indicators, session isolation per chat |
 | 🧠 **MemCtrl Memory** | Native SQLite-backed memory layer — store, query, forget with confidence scoring and provenance |
 | 🔧 **10 Tools** | Filesystem, shell (denylist-protected), grep, glob, diff, web search, URL fetch, memory |
@@ -268,10 +282,6 @@ memctrl = true
 
 [memory]
 enabled = true
-
-[security]
-shell_denylist = ["rm -rf /", "dd", "mkfs", "curl | sh"]
-require_dangerous_flag = true
 ```
 
 ---

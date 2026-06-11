@@ -39,7 +39,7 @@ impl MemCtrlNative {
             std::fs::create_dir_all(parent).ok();
         }
         let conn = Connection::open(&db_path)
-            .map_err(|e| AxgaError::Config(format!("memctrl: cannot open db: {}", e)))?;
+            .map_err(|e| AxgaError::Config(format!("memctrl: cannot open db: {e}")))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS memories (
                 id TEXT PRIMARY KEY,
@@ -53,7 +53,7 @@ impl MemCtrlNative {
             );
             CREATE INDEX IF NOT EXISTS idx_mem_layer ON memories(layer);
             CREATE INDEX IF NOT EXISTS idx_mem_tags ON memories(tags);"
-        ).map_err(|e| AxgaError::Config(format!("memctrl: cannot init schema: {}", e)))?;
+        ).map_err(|e| AxgaError::Config(format!("memctrl: cannot init schema: {e}")))?;
 
         Ok(Self { db: Mutex::new(conn) })
     }
@@ -70,7 +70,7 @@ impl MemCtrlNative {
 
     fn query(&self, query: &str) -> AxgaResult<String> {
         let conn = self.db.lock().map_err(|e| AxgaError::Config(e.to_string()))?;
-        let pattern = format!("%{}%", query);
+        let pattern = format!("%{query}%");
         let mut stmt = conn.prepare(
             "SELECT id, layer, content, confidence, source, created_at FROM memories
              WHERE content LIKE ?1
@@ -103,7 +103,7 @@ impl MemCtrlNative {
     fn list(&self, layer: Option<&str>) -> AxgaResult<String> {
         let conn = self.db.lock().map_err(|e| AxgaError::Config(e.to_string()))?;
         let sql = if let Some(l) = layer {
-            format!("SELECT id, layer, content, confidence FROM memories WHERE layer = '{}' ORDER BY created_at DESC LIMIT 50", l)
+            format!("SELECT id, layer, content, confidence FROM memories WHERE layer = '{l}' ORDER BY created_at DESC LIMIT 50")
         } else {
             "SELECT id, layer, content, confidence FROM memories ORDER BY created_at DESC LIMIT 50".into()
         };
@@ -123,10 +123,10 @@ impl MemCtrlNative {
 
     fn forget(&self, id_prefix: &str) -> AxgaResult<String> {
         let conn = self.db.lock().map_err(|e| AxgaError::Config(e.to_string()))?;
-        let pattern = format!("{}%", id_prefix);
+        let pattern = format!("{id_prefix}%");
         let deleted = conn.execute("DELETE FROM memories WHERE id LIKE ?1", params![pattern])
             .map_err(|e| AxgaError::ToolError { tool: "memctrl".into(), message: e.to_string() })?;
-        Ok(format!("Forgot {} memories matching '{}'", deleted, id_prefix))
+        Ok(format!("Forgot {deleted} memories matching '{id_prefix}'"))
     }
 
     fn doctor(&self) -> AxgaResult<String> {
@@ -137,7 +137,7 @@ impl MemCtrlNative {
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM memories WHERE layer = ?1", params![layer], |r| r.get(0)
             ).unwrap_or(0);
-            if count > 0 { Some(format!("  {}: {} memories", layer, count)) } else { None }
+            if count > 0 { Some(format!("  {layer}: {count} memories")) } else { None }
         }).collect();
 
         Ok(format!("MemCtrl health:\n  DB: {}\n  Total: {} memories\n{}",
@@ -218,8 +218,109 @@ impl Tool for MemCtrlTool {
                     self.native.forget(&id)
                 }
                 "doctor" => self.native.doctor(),
-                _ => Err(AxgaError::ToolError { tool: "memctrl".into(), message: format!("unknown action: {}", action) }),
+                _ => Err(AxgaError::ToolError { tool: "memctrl".into(), message: format!("unknown action: {action}") }),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_temp_db<F>(test_name: &str, f: F)
+    where
+        F: FnOnce(MemCtrlNative),
+    {
+        let dir = std::env::temp_dir().join(format!("axga_memctrl_{test_name}"));
+        let _ = std::fs::create_dir_all(&dir);
+        let db_path = dir.join("memories.db");
+        unsafe { std::env::set_var("MEMCTRL_DB_PATH", &db_path) };
+        if let Ok(native) = MemCtrlNative::new() {
+            f(native);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        unsafe { std::env::remove_var("MEMCTRL_DB_PATH") };
+    }
+
+    #[test]
+    fn memctrl_tool_name() {
+        let dir = std::env::temp_dir().join("axga_memctrl_name_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let db_path = dir.join("name.db");
+        unsafe { std::env::set_var("MEMCTRL_DB_PATH", &db_path) };
+        let result = MemCtrlTool::new();
+        if let Ok(tool) = result {
+            assert_eq!(tool.name(), "memctrl");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        unsafe { std::env::remove_var("MEMCTRL_DB_PATH") };
+    }
+
+    #[test]
+    fn memctrl_doctor_reports_health() {
+        with_temp_db("doctor", |native| {
+            let report = native.doctor().unwrap();
+            assert!(report.contains("MemCtrl health"));
+            assert!(report.contains("Total: 0 memories"));
+        });
+    }
+
+    #[test]
+    fn memctrl_add_and_query() {
+        with_temp_db("add_query", |native| {
+            let add_result = native.add("Test memory content", "session", "test", 0.9).unwrap();
+            assert!(add_result.contains("Added memory"));
+
+            let query_result = native.query("test memory").unwrap();
+            assert!(query_result.contains("Test memory content"));
+        });
+    }
+
+    #[test]
+    fn memctrl_query_no_match() {
+        with_temp_db("query_none", |native| {
+            let result = native.query("nonexistent").unwrap();
+            assert_eq!(result, "No memories found.");
+        });
+    }
+
+    #[test]
+    fn memctrl_list_empty() {
+        with_temp_db("list_empty", |native| {
+            let result = native.list(None).unwrap();
+            assert_eq!(result, "No memories stored.");
+        });
+    }
+
+    #[test]
+    fn memctrl_add_then_list() {
+        with_temp_db("add_list", |native| {
+            native.add("Listable memory", "project", "test", 1.0).unwrap();
+            let result = native.list(Some("project")).unwrap();
+            assert!(result.contains("Listable memory"));
+        });
+    }
+
+    #[test]
+    fn memctrl_forget() {
+        with_temp_db("forget", |native| {
+            let result = native.forget("nonexistent").unwrap();
+            assert!(result.contains("Forgot 0 memories"));
+        });
+    }
+
+    #[test]
+    fn memctrl_add_and_forget() {
+        with_temp_db("add_forget", |native| {
+            native.add("Forget me", "session", "test", 1.0).unwrap();
+            native.add("Keep me", "session", "test", 1.0).unwrap();
+
+            let result = native.query("Forget me").unwrap();
+            assert!(result.contains("Forget me"));
+
+            let result = native.query("Keep me").unwrap();
+            assert!(result.contains("Keep me"));
+        });
     }
 }

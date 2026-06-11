@@ -8,3 +8,5 @@
 pub mod providers;
 pub mod stream;
 pub mod request;
+
+pub use providers::Provider;

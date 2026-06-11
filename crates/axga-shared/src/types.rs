@@ -119,6 +119,7 @@ impl TokenBudget {
     }
 
     /// Reserve `n` tokens. Returns `Err` if budget exceeded.
+    #[allow(clippy::result_unit_err)]
     pub fn reserve(&mut self, n: u32) -> Result<(), ()> {
         if self.would_exceed(n) {
             return Err(());

@@ -48,16 +48,30 @@ update_brew_sha "aarch64-apple-darwin"
 # ── AUR PKGBUILD ──────────────────────────────────────────────────
 PKGBUILD_FILE="${REPO_ROOT}/scripts/aur/PKGBUILD"
 
+# The PKGBUILD uses a _sha256() function that maps $CARCH to the correct hash.
+# We update the hash inside that function for each architecture.
+
 echo ""
 echo "AUR PKGBUILD:"
-ARCHIVE="axga-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
-if [ -f "$ARCHIVE" ]; then
-    SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')
-    echo "  x86_64: ${SHA}"
-    sed -i "s/sha256sums=('[^']*')/sha256sums=('${SHA}')/" "$PKGBUILD_FILE"
-else
-    echo "  WARNING: ${ARCHIVE} not found — skipping"
-fi
+for arch_label in "x86_64-unknown-linux-musl" "aarch64-unknown-linux-musl"; do
+    ARCHIVE="axga-${VERSION}-${arch_label}.tar.gz"
+    if [ -f "$ARCHIVE" ]; then
+        SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+        echo "  ${arch_label}: ${SHA}"
+    else
+        echo "  WARNING: ${ARCHIVE} not found — skipping"
+        continue
+    fi
+
+    case "${arch_label}" in
+        x86_64*)
+            sed -i "/x86_64)  echo /s/\\(echo \"\\).*\\(\"\\)/\\1${SHA}\\2/" "$PKGBUILD_FILE"
+            ;;
+        aarch64*)
+            sed -i "/aarch64) echo /s/\\(echo \"\\).*\\(\"\\)/\\1${SHA}\\2/" "$PKGBUILD_FILE"
+            ;;
+    esac
+done
 
 echo ""
 echo "=== Done ==="

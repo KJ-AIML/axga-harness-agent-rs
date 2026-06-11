@@ -17,8 +17,16 @@ _platform() {
   esac
 }
 
+_sha256() {
+  case "$CARCH" in
+    x86_64)  echo "c751933392de5941583d8a9ec257ba0fe865740c819f5c36b18c07e7e4f6e6d8" ;;
+    aarch64) echo "# FILL at release time" ;;
+    *)       echo "unsupported"; return 1 ;;
+  esac
+}
+
 source=("$url/releases/download/v$pkgver/axga-v$pkgver-$(_platform).tar.gz")
-sha256sums=('c751933392de5941583d8a9ec257ba0fe865740c819f5c36b18c07e7e4f6e6d8')
+sha256sums=("$(_sha256)")
 
 package() {
   install -Dm755 "$srcdir/axga" "$pkgdir/usr/bin/axga"

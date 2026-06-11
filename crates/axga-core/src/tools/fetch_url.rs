@@ -81,3 +81,28 @@ impl Tool for FetchUrlTool {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fetch_url_tool_name() {
+        let tool = FetchUrlTool;
+        assert_eq!(tool.name(), "fetch_url");
+    }
+
+    #[test]
+    fn fetch_url_tool_description() {
+        let tool = FetchUrlTool;
+        assert!(tool.description().contains("URL"));
+    }
+
+    #[test]
+    fn fetch_url_parameters_require_url() {
+        let tool = FetchUrlTool;
+        let params = tool.parameters();
+        let req = params["required"].as_array().unwrap();
+        assert!(req.contains(&serde_json::Value::String("url".into())));
+    }
+}

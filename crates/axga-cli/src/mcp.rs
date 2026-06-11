@@ -33,7 +33,7 @@ pub async fn run_mcp_server(
         let request: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
-                send_error(&mut stdout, None, -32700, &format!("Parse error: {}", e));
+                send_error(&mut stdout, None, -32700, &format!("Parse error: {e}"));
                 continue;
             }
         };
@@ -145,7 +145,7 @@ pub async fn run_mcp_server(
                             &mut stdout,
                             id,
                             -32602,
-                            &format!("Unknown tool: {}", tool_name),
+                            &format!("Unknown tool: {tool_name}"),
                         );
                     }
                 }
@@ -162,7 +162,7 @@ pub async fn run_mcp_server(
             }
 
             _ => {
-                send_error(&mut stdout, id, -32601, &format!("Method not found: {}", method));
+                send_error(&mut stdout, id, -32601, &format!("Method not found: {method}"));
             }
         }
     }

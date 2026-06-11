@@ -6,10 +6,10 @@
 use axga_tui::app::{App, ChatLine, InputMode};
 use axga_tui::theme;
 use axga_core::{Conversation, ToolRegistry, run_turn};
-use axga_core::tools::{fs, shell, code, memctrl_native, web_search, fetch_url};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::DefaultTerminal;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_tui(
     provider: &str,
     api_key: Option<&str>,
@@ -17,18 +17,9 @@ pub async fn run_tui(
     model: &str,
     system_prompt: Option<&str>,
     max_turns: usize,
+    dangerous: bool,
 ) -> anyhow::Result<()> {
-    let mut registry = ToolRegistry::new();
-    registry.register(fs::ReadFileTool)?;
-    registry.register(fs::WriteFileTool)?;
-    registry.register(fs::ListDirectoryTool)?;
-    registry.register(shell::ShellTool::new(false))?;
-    registry.register(code::GrepTool)?;
-    registry.register(code::GlobTool)?;
-    registry.register(code::DiffTool)?;
-    registry.register(memctrl_native::MemCtrlTool::new()?)?;
-    registry.register(web_search::WebSearchTool)?;
-    registry.register(fetch_url::FetchUrlTool)?;
+    let mut registry = axga_core::build_default_registry(dangerous)?;
     let mut conversation = Conversation::new();
     let mut terminal = ratatui::init();
     let th = theme::dark_theme();
@@ -57,9 +48,10 @@ pub async fn run_tui(
     ).await;
 
     ratatui::restore();
-    result.map_err(|e| anyhow::anyhow!("{}", e))
+    result.map_err(|e| anyhow::anyhow!("{e}"))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn tui_loop(
     terminal: &mut DefaultTerminal,
     app: &mut App,
@@ -169,9 +161,9 @@ async fn tui_loop(
                                                 )));
                                             }
                                             "status" => {
-                                                app.chat_lines.push(ChatLine::Info(format!("Provider:  {}", provider)));
-                                                app.chat_lines.push(ChatLine::Info(format!("Model:     {}", model)));
-                                                app.chat_lines.push(ChatLine::Info(format!("Max turns: {}", max_turns)));
+                                                app.chat_lines.push(ChatLine::Info(format!("Provider:  {provider}")));
+                                                app.chat_lines.push(ChatLine::Info(format!("Model:     {model}")));
+                                                app.chat_lines.push(ChatLine::Info(format!("Max turns: {max_turns}")));
                                                 app.chat_lines.push(ChatLine::Info(format!("Messages:  {}", conversation.len())));
                                                 app.chat_lines.push(ChatLine::Info(format!("Turns:     {}", conversation.turn_count())));
                                                 app.chat_lines.push(ChatLine::Info(format!("Tokens:    {}", app.status.tokens_used)));
@@ -182,7 +174,7 @@ async fn tui_loop(
                                                 let tokens = app.status.tokens_used;
                                                 let max_ctx = 32_768u32;
                                                 let pct = if max_ctx > 0 { (tokens as f64 / max_ctx as f64 * 100.0) as u32 } else { 0 };
-                                                app.chat_lines.push(ChatLine::Info(format!("Tokens: {}/{} ({}%)", tokens, max_ctx, pct)));
+                                                app.chat_lines.push(ChatLine::Info(format!("Tokens: {tokens}/{max_ctx} ({pct}%)")));
                                                 app.chat_lines.push(ChatLine::Info(format!("Messages: {}", conversation.len())));
                                                 app.chat_lines.push(ChatLine::Info(format!("Turns: {}", conversation.turn_count())));
                                             }
@@ -195,7 +187,7 @@ async fn tui_loop(
                                                     });
                                                 }
                                                 let after = conversation.len();
-                                                app.chat_lines.push(ChatLine::Info(format!("Compacted: {} → {} messages", before, after)));
+                                                app.chat_lines.push(ChatLine::Info(format!("Compacted: {before} → {after} messages")));
                                             }
                                             "version" => {
                                                 app.chat_lines.push(ChatLine::Info(format!("axga v{} (rustc {})", env!("CARGO_PKG_VERSION"), option_env!("CARGO_PKG_RUST_VERSION").unwrap_or("unknown"))));
@@ -203,31 +195,31 @@ async fn tui_loop(
                                             "export" => {
                                                 let path = if args.is_empty() { "axga-export.md" } else { args };
                                                 let mut md = String::new();
-                                                md.push_str(&format!("# axga Session Export\n\n"));
+                                                md.push_str("# axga Session Export\n\n");
                                                 md.push_str(&format!("Provider: {} | Model: {} | Tokens: {}\n\n", provider, model, app.status.tokens_used));
                                                 for line in &app.chat_lines {
                                                     match line {
-                                                        ChatLine::User(t) => md.push_str(&format!("**You:** {}\n\n", t)),
-                                                        ChatLine::Assistant(t) => md.push_str(&format!("{}\n\n", t)),
-                                                        ChatLine::Tool { name, detail } => md.push_str(&format!("*[tool: {} → {}]*\n\n", name, detail)),
-                                                        ChatLine::Error(t) => md.push_str(&format!("*Error: {}*\n\n", t)),
+                                                        ChatLine::User(t) => md.push_str(&format!("**You:** {t}\n\n")),
+                                                        ChatLine::Assistant(t) => md.push_str(&format!("{t}\n\n")),
+                                                        ChatLine::Tool { name, detail } => md.push_str(&format!("*[tool: {name} → {detail}]*\n\n")),
+                                                        ChatLine::Error(t) => md.push_str(&format!("*Error: {t}*\n\n")),
                                                         _ => {}
                                                     }
                                                 }
                                                 match std::fs::write(path, &md) {
-                                                    Ok(_) => app.chat_lines.push(ChatLine::Info(format!("Exported to {}", path))),
-                                                    Err(e) => app.chat_lines.push(ChatLine::Error(format!("Export failed: {}", e))),
+                                                    Ok(_) => app.chat_lines.push(ChatLine::Info(format!("Exported to {path}"))),
+                                                    Err(e) => app.chat_lines.push(ChatLine::Error(format!("Export failed: {e}"))),
                                                 }
                                             }
                                             "title" => {
                                                 if args.is_empty() {
                                                     app.chat_lines.push(ChatLine::Info("Usage: /title <your session title>".into()));
                                                 } else {
-                                                    app.chat_lines.push(ChatLine::Info(format!("Session title set to: {}", args)));
+                                                    app.chat_lines.push(ChatLine::Info(format!("Session title set to: {args}")));
                                                 }
                                             }
                                             _ => {
-                                                app.chat_lines.push(ChatLine::Error(format!("Unknown: /{}. Try /help", cmd)));
+                                                app.chat_lines.push(ChatLine::Error(format!("Unknown: /{cmd}. Try /help")));
                                             }
                                         }
                                         app.scroll_to_bottom();
@@ -271,7 +263,7 @@ async fn tui_loop(
                                         Err(e) => {
                                             app.chat_lines.pop();
                                             app.is_streaming = false;
-                                            app.chat_lines.push(ChatLine::Error(format!("{}", e)));
+                                            app.chat_lines.push(ChatLine::Error(format!("{e}")));
                                         }
                                     }
 
@@ -319,6 +311,14 @@ async fn tui_loop(
                                 }
                                 KeyCode::Char('q') => app.exit = true,
                                 KeyCode::Char('G') => app.scroll_to_bottom(),
+                                KeyCode::Char('g') => {
+                                    if app.pending_gg {
+                                        app.scroll_to_top();
+                                        app.pending_gg = false;
+                                    } else {
+                                        app.pending_gg = true;
+                                    }
+                                }
                                 KeyCode::Up | KeyCode::Char('k') => app.scroll_by(-1),
                                 KeyCode::Down | KeyCode::Char('j') => app.scroll_by(1),
                                 KeyCode::Enter => {
@@ -349,14 +349,16 @@ async fn tui_loop(
                                             Err(e) => {
                                                 app.chat_lines.pop();
                                                 app.is_streaming = false;
-                                                app.chat_lines.push(ChatLine::Error(format!("{}", e)));
+                                                app.chat_lines.push(ChatLine::Error(format!("{e}")));
                                             }
                                         }
                                         app.chat_lines.push(ChatLine::Spacer);
                                                 app.scroll_to_bottom();
                                     }
                                 }
-                                _ => {}
+                                _ => {
+                                    app.pending_gg = false;
+                                }
                             }
                         }
                         InputMode::Command => {
@@ -392,7 +394,7 @@ async fn tui_loop(
                                             )));
                                         }
                                         _ => {
-                                            app.chat_lines.push(ChatLine::Error(format!("Unknown: {}", cmd_clean)));
+                                            app.chat_lines.push(ChatLine::Error(format!("Unknown: {cmd_clean}")));
                                         }
                                     }
                                     app.mode = InputMode::Normal;

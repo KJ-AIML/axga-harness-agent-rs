@@ -17,6 +17,7 @@ use axga_shared::types::{
     AgentMessage, AssistantContent, StreamEvent, ToolCall, ToolDefinition,
 };
 use axga_ai::request::RequestBuilder;
+use axga_ai::Provider;
 use crate::state::Conversation;
 use crate::executor::execute_tool_calls;
 use crate::ToolRegistry;
@@ -31,6 +32,7 @@ pub struct TurnResult {
 }
 
 /// Run a single turn of the agent: user input → LLM → tools → loop → final response.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_turn(
     provider_type: &str,
     api_key: Option<&str>,
@@ -82,32 +84,28 @@ pub async fn run_turn(
             request
         };
 
-        let stream = match provider_type {
+        let provider: Box<dyn Provider> = match provider_type {
             "openai" => {
-                let provider = axga_ai::providers::openai::OpenAiProvider::new(
+                Box::new(axga_ai::providers::openai::OpenAiProvider::new(
                     api_key.map(|s| s.to_string()),
                     base_url.map(|s| s.to_string()),
-                )?;
-                provider.stream_chat(&request).await?
+                )?)
             }
             "deepseek" => {
-                let key = api_key
-                    .map(|s| s.to_string())
-                    .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok());
-                let url = base_url
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
-                let provider = axga_ai::providers::openai::OpenAiProvider::new(key, Some(url))?;
-                provider.stream_chat(&request).await?
+                Box::new(axga_ai::providers::deepseek::DeepSeekProvider::new(
+                    api_key.map(|s| s.to_string()),
+                    base_url.map(|s| s.to_string()),
+                )?)
             }
             "anthropic" => {
-                let provider = axga_ai::providers::anthropic::AnthropicProvider::new(
+                Box::new(axga_ai::providers::anthropic::AnthropicProvider::new(
                     api_key.map(|s| s.to_string()),
-                )?;
-                provider.stream_chat(model, &messages, system_prompt, &tool_defs, 4096).await?
+                )?)
             }
-            _ => return Err(AxgaError::Config(format!("unknown provider: {}", provider_type))),
+            _ => return Err(AxgaError::Config(format!("unknown provider: {provider_type}"))),
         };
+
+        let stream = provider.stream_chat(&request).await?;
 
         // Collect stream events
         let (text, tool_calls, token_count) = collect_stream(stream).await?;
@@ -199,7 +197,7 @@ where
                             existing.push_str(&args_fragment);
                         }
                     }
-                } else if current_tc.as_ref().map_or(true, |tc| tc.id != id) {
+                } else if current_tc.as_ref().is_none_or(|tc| tc.id != id) {
                     if let Some(tc) = current_tc.take() {
                         tool_calls.push(tc);
                     }

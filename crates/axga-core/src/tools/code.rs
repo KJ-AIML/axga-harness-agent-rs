@@ -84,8 +84,8 @@ impl Tool for GlobTool {
 fn search_files(base: &str, include_filter: Option<&str>, cb: &mut dyn FnMut(String)) {
     let path = std::path::Path::new(base);
     if path.is_file() {
-        if include_filter.map_or(true, |f| {
-            path.file_name().and_then(|n| n.to_str()).map_or(false, |n| {
+        if include_filter.is_none_or(|f| {
+            path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
                 glob::Pattern::new(f).map(|p| p.matches(n)).unwrap_or(false)
             })
         }) {
@@ -107,8 +107,8 @@ fn search_files(base: &str, include_filter: Option<&str>, cb: &mut dyn FnMut(Str
                     search_files(&p.display().to_string(), include_filter, cb);
                 } else {
                     let display = p.display().to_string();
-                    if include_filter.map_or(true, |f| {
-                        p.file_name().and_then(|n| n.to_str()).map_or(false, |n| {
+                    if include_filter.is_none_or(|f| {
+                        p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
                             glob::Pattern::new(f).map(|p| p.matches(n)).unwrap_or(false)
                         })
                     }) {
@@ -148,11 +148,59 @@ impl Tool for DiffTool {
             let diff = similar::TextDiff::from_lines(&a, &b);
             let result: String = diff
                 .unified_diff()
-                .header(&path_a, &path_b)
+                .header(path_a, path_b)
                 .iter_hunks()
                 .flat_map(|h| h.to_string().chars().collect::<Vec<_>>())
                 .collect();
             Ok(if result.is_empty() { "Files are identical.".into() } else { result })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grep_tool_name() {
+        let tool = GrepTool;
+        assert_eq!(tool.name(), "grep");
+    }
+
+    #[test]
+    fn grep_tool_parameters_require_pattern() {
+        let tool = GrepTool;
+        let params = tool.parameters();
+        let req = params["required"].as_array().unwrap();
+        assert!(req.contains(&serde_json::Value::String("pattern".into())));
+    }
+
+    #[test]
+    fn glob_tool_name() {
+        let tool = GlobTool;
+        assert_eq!(tool.name(), "glob");
+    }
+
+    #[test]
+    fn glob_tool_parameters_require_pattern() {
+        let tool = GlobTool;
+        let params = tool.parameters();
+        let req = params["required"].as_array().unwrap();
+        assert!(req.contains(&serde_json::Value::String("pattern".into())));
+    }
+
+    #[test]
+    fn diff_tool_name() {
+        let tool = DiffTool;
+        assert_eq!(tool.name(), "diff");
+    }
+
+    #[test]
+    fn diff_tool_parameters_require_paths() {
+        let tool = DiffTool;
+        let params = tool.parameters();
+        let req = params["required"].as_array().unwrap();
+        assert!(req.contains(&serde_json::Value::String("path_a".into())));
+        assert!(req.contains(&serde_json::Value::String("path_b".into())));
     }
 }

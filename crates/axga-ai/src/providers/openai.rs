@@ -4,8 +4,10 @@ use axga_shared::error::{AxgaError, AxgaResult};
 use axga_shared::types::StreamEvent;
 use crate::request::RequestBuilder;
 use crate::stream::SseStream;
+use crate::providers::Provider;
 use futures::Stream;
 use reqwest::Client;
+use std::future::Future;
 use std::pin::Pin;
 
 #[derive(Clone)]
@@ -62,6 +64,17 @@ impl OpenAiProvider {
             buffer: String::with_capacity(4096),
             done: false,
         }))
+    }
+}
+
+impl Provider for OpenAiProvider {
+    fn stream_chat(
+        &self,
+        request: &RequestBuilder,
+    ) -> Pin<Box<dyn Future<Output = AxgaResult<Pin<Box<dyn Stream<Item = AxgaResult<StreamEvent>> + Send>>>> + Send>> {
+        let this = self.clone();
+        let request = request.clone();
+        Box::pin(async move { this.stream_chat(&request).await })
     }
 }
 

@@ -6,11 +6,14 @@
 use axga_shared::types::{AgentMessage, ToolDefinition};
 use serde_json::Value;
 
+#[derive(Clone)]
 pub struct RequestBuilder {
     pub model: String,
     pub messages: Vec<Value>,
+    pub original_messages: Vec<AgentMessage>,
     pub system_prompt: Option<String>,
     pub tools: Vec<Value>,
+    pub original_tools: Vec<ToolDefinition>,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
     pub stream: bool,
@@ -21,8 +24,10 @@ impl RequestBuilder {
         Self {
             model: model.to_string(),
             messages: messages.iter().map(message_to_openai_json).collect(),
+            original_messages: messages.to_vec(),
             system_prompt: None,
             tools: Vec::new(),
+            original_tools: Vec::new(),
             max_tokens: 4096,
             temperature: None,
             stream: true,
@@ -48,6 +53,7 @@ impl RequestBuilder {
                 })
             })
             .collect();
+        self.original_tools = tools.to_vec();
         self
     }
 

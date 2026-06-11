@@ -29,7 +29,7 @@ pub fn parse_sse_line(line: &str) -> Option<AxgaResult<StreamEvent>> {
                             return Some(Ok(StreamEvent::TextDelta { text: content.to_string() }));
                         }
                         if let Some(tool_calls) = delta["tool_calls"].as_array() {
-                            for tc in tool_calls {
+                            if let Some(tc) = tool_calls.first() {
                                 let id = tc["id"].as_str().unwrap_or("").to_string();
                                 let name = tc["function"]["name"].as_str().unwrap_or("").to_string();
                                 let args = tc["function"]["arguments"].as_str().unwrap_or("");

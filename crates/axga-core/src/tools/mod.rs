@@ -7,7 +7,6 @@ pub mod registry;
 pub mod fs;
 pub mod shell;
 pub mod code;
-pub mod memctrl;
 pub mod memctrl_native;
 pub mod web_search;
 pub mod fetch_url;
