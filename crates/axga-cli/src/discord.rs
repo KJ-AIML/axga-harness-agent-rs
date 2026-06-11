@@ -12,6 +12,7 @@
 
 use axga_core::{run_turn_streaming, StreamHandler, PermissionManager, PermissionMode};
 use axga_core::goal::GoalManager;
+use axga_shared::types::AgentMessage;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -237,9 +238,10 @@ pub async fn run_discord_bot(
                     Err(_) => vec![],
                 };
 
-                // Strip @mention from content, use as user input
+                // Build thread context from recent history (so LLM can follow conversation)
                 let user_input = strip_mention(&content, &bot_name);
-                drop(history); // not needed — conversation already has context
+                let thread_context = build_thread_context(&history, &bot_name, &author, &user_input);
+
                 // ── Show typing indicator ──
                 let typing_url = format!(
                     "https://discord.com/api/v10/channels/{ch_id}/typing"
@@ -250,8 +252,14 @@ pub async fn run_discord_bot(
                     .send()
                     .await;
 
-                // ── Build tool registry and use per-channel conversation ──
+                // ── Build tool registry ──
                 let mut conversation = axga_core::Conversation::new();
+                // Push thread context as system message so LLM knows what's happening
+                if !thread_context.is_empty() {
+                    conversation.push(AgentMessage::System {
+                        content: format!("You are axga, a helpful AI agent. Below is the recent conversation in this Discord channel. Respond to the last message, keeping the thread context in mind.\n\n{thread_context}"),
+                    });
+                }
                 let registry = axga_core::build_default_registry(
                     dangerous,
                     Some(provider),
@@ -391,6 +399,35 @@ fn strip_mention(content: &str, bot_name: &str) -> String {
         s
     };
     s.trim().to_string()
+}
+
+/// Build a thread context from recent channel messages so the LLM
+/// can follow the conversation flow across messages.
+fn build_thread_context(
+    history: &[serde_json::Value],
+    bot_name: &str,
+    current_author: &str,
+    current_input: &str,
+) -> String {
+    let mut ctx = String::from("Recent chat history:\n");
+
+    // History is newest-first from Discord — iterate oldest-first
+    for msg in history.iter().rev() {
+        let author = msg["author"]["username"].as_str().unwrap_or("unknown");
+        let content = msg["content"].as_str().unwrap_or("").trim();
+        if content.is_empty() { continue; }
+        let label = if msg["author"]["bot"].as_bool().unwrap_or(false)
+            && msg["author"]["username"].as_str() == Some(bot_name)
+        {
+            format!("{author} (you)")
+        } else {
+            author.to_string()
+        };
+        ctx.push_str(&format!("{label}: {content}\n"));
+    }
+
+    ctx.push_str(&format!("\nCurrent: {current_author}: {current_input}\n"));
+    ctx
 }
 
 /// Split a long message into Discord-safe chunks (max 2000 chars per chunk).
