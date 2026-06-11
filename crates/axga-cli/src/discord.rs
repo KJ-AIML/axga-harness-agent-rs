@@ -252,7 +252,7 @@ pub async fn run_discord_bot(
                     .await;
 
                 // ── Build tool registry and use per-channel conversation ──
-                let conversation = conversations.entry(ch_id.clone()).or_default();
+                let mut conversation = axga_core::Conversation::new();
                 let registry = axga_core::build_default_registry(
                     dangerous,
                     Some(provider),
@@ -291,7 +291,7 @@ pub async fn run_discord_bot(
                     api_key,
                     base_url,
                     model,
-                    conversation,
+                    &mut conversation,
                     &user_input,
                     &registry,
                     system_prompt,
@@ -316,7 +316,7 @@ pub async fn run_discord_bot(
                             permissions.approve_all();
                             let _ = axga_core::continue_turn_streaming(
                                 provider, api_key, base_url, model,
-                                conversation, &registry,
+                                &mut conversation, &registry,
                                 system_prompt, 10,
                                 &mut handler, Some(permissions.clone()),
                                 turn.pending_approvals,
