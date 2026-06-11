@@ -108,7 +108,6 @@ pub async fn run_discord_bot(
     let goal_manager = Arc::new(Mutex::new(GoalManager::new()));
 
     // Per-channel persistent conversations (remember context across messages)
-    let mut conversations: HashMap<String, axga_core::Conversation> = HashMap::new();
 
     // Per-channel last processed message ID to avoid reprocessing
     let state_path = {
