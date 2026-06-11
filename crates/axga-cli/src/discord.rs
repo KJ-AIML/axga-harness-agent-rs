@@ -10,7 +10,7 @@
 //! 5. On mention: fetches 10-message history for context, shows typing, runs agent, replies
 //! 6. Skips own bot messages and already-processed messages (per-channel tracking)
 
-use axga_core::{Conversation, run_turn_streaming, StreamHandler, PermissionManager, PermissionMode};
+use axga_core::{run_turn_streaming, StreamHandler, PermissionManager, PermissionMode};
 use axga_core::goal::GoalManager;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -226,7 +226,7 @@ pub async fn run_discord_bot(
                     .await;
 
                 // ── Build tool registry and use per-channel conversation ──
-                let conversation = conversations.entry(ch_id.clone()).or_insert_with(axga_core::Conversation::new);
+                let conversation = conversations.entry(ch_id.clone()).or_default();
                 let registry = axga_core::build_default_registry(
                     dangerous,
                     Some(provider),
@@ -349,51 +349,6 @@ pub async fn run_discord_bot(
 
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     }
-}
-
-/// Build a context string from channel history and the triggering message.
-///
-/// Formats the last N messages as a conversation log, then appends the
-/// triggering @mention message so the agent sees full context.
-fn build_context(
-    history: &[serde_json::Value],
-    trigger: &serde_json::Value,
-    bot_name: &str,
-) -> String {
-    let mut ctx = String::from(
-        "Recent channel conversation (oldest first):\n",
-    );
-
-    // Oldest first (Discord returns newest-first, so reverse)
-    for msg in history.iter().rev() {
-        let author = msg["author"]["username"]
-            .as_str()
-            .unwrap_or("unknown");
-        let content = msg["content"].as_str().unwrap_or("").trim();
-        if content.is_empty() {
-            continue;
-        }
-        let mut author_display = author.to_string();
-        if msg["author"]["bot"].as_bool().unwrap_or(false)
-            && msg["author"]["username"].as_str() == Some(bot_name)
-        {
-            author_display = format!("{author} (you)");
-        }
-        ctx.push_str(&format!("{author_display}: {content}\n"));
-    }
-
-    // Append the triggering @mention message
-    let trigger_author = trigger["author"]["username"]
-        .as_str()
-        .unwrap_or("unknown");
-    let trigger_content = trigger["content"].as_str().unwrap_or("").trim();
-    // Strip the @mention from the content for cleaner context
-    let cleaned = strip_mention(trigger_content, bot_name);
-    ctx.push_str(&format!(
-        "\n{trigger_author} (@mentioned you): {cleaned}\n"
-    ));
-
-    ctx
 }
 
 /// Remove the `@botname` prefix from a message so the agent sees a clean
