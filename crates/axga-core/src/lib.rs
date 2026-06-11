@@ -52,6 +52,9 @@ pub fn build_default_registry(
     registry.register(task_list::TaskListTool::new(std::sync::Arc::clone(&task_manager)))?;
     registry.register(task_output::TaskOutputTool::new(std::sync::Arc::clone(&task_manager)))?;
     registry.register(task_stop::TaskStopTool::new(std::sync::Arc::clone(&task_manager)))?;
+    registry.register(plan::EnterPlanModeTool)?;
+    registry.register(plan::ExitPlanModeTool)?;
+    registry.register(ask_user::AskUserQuestionTool)?;
 
     // Register agent and agent_swarm tools if provider/model info is available.
     if let (Some(provider), Some(model)) = (provider, model) {

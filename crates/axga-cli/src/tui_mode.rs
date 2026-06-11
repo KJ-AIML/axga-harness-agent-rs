@@ -6,6 +6,7 @@
 use axga_tui::app::{App, ChatLine, InputMode, PendingPrompt};
 use axga_tui::theme;
 use axga_core::{Conversation, ToolRegistry, run_turn_streaming, continue_turn_streaming, simple_chat, StreamHandler, load_config, save_config, PermissionManager, PermissionMode};
+use axga_core::tools::ask_user::parse_ask_user_result;
 use axga_shared::types::{AgentMessage, ToolCall};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::DefaultTerminal;
@@ -100,6 +101,8 @@ struct TuiStreamHandler<'a, 'b> {
     accumulated_text: String,
     /// Tool calls tracked during this turn (name → detail shown).
     tools_seen: Vec<String>,
+    /// If an ask_user_question tool was executed, holds (tool_call_id, questions_json).
+    ask_user_pending: Option<(String, String)>,
 }
 
 impl StreamHandler for TuiStreamHandler<'_, '_> {
@@ -127,6 +130,18 @@ impl StreamHandler for TuiStreamHandler<'_, '_> {
     }
 
     fn on_tool_call_result(&mut self, name: &str, result: &str) {
+        // Check if this is an ask_user_question result — don't show inline
+        if name == "ask_user_question" {
+            if let Some(parsed) = parse_ask_user_result(result) {
+                let questions_json = parsed["questions"].to_string();
+                // tool_call_id is not directly available in the handler — we'll
+                // store the questions and detect the tool_call_id from the
+                // conversation in post-turn processing.
+                self.ask_user_pending = Some((String::new(), questions_json));
+                self.tools_seen.push(name.to_string());
+                return;
+            }
+        }
         // Show tool result
         let detail = if result.len() > 80 {
             format!("{}...", &result[..80])
@@ -349,6 +364,43 @@ async fn tui_loop(
                                                 }
                                                 app.chat_lines.push(ChatLine::Spacer);
                                             }
+                                            continue;
+                                        }
+                                        PendingPrompt::AskUser { questions_json, tool_call_id } => {
+                                            // User answered the question — push answer as tool result
+                                            let answer_json = serde_json::json!({
+                                                "answer": input.trim(),
+                                                "questions": serde_json::from_str::<serde_json::Value>(&questions_json).unwrap_or_default()
+                                            });
+                                            app.chat_lines.push(ChatLine::Info(format!("Answer recorded: {}", input.trim())));
+                                            conversation.push(AgentMessage::Tool {
+                                                tool_call_id,
+                                                content: answer_json.to_string(),
+                                            });
+
+                                            // Continue the agent turn
+                                            let api_key = resolve_api_key(provider);
+                                            match continue_turn_streaming(
+                                                provider.as_str(), api_key.as_deref(), base_url, model.as_str(),
+                                                conversation, registry, system_prompt, max_turns,
+                                                &mut NoopStreamHandler, Some(permissions.clone()),
+                                                Vec::new(),
+                                            ).await {
+                                                Ok(turn) => {
+                                                    if !turn.final_text.is_empty() {
+                                                        app.chat_lines.push(ChatLine::Assistant(turn.final_text));
+                                                    }
+                                                    for tc in &turn.tool_calls_made {
+                                                        app.chat_lines.push(ChatLine::Tool { name: tc.clone(), detail: "executed".into() });
+                                                    }
+                                                    app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                                    app.update_context(conversation.len());
+                                                }
+                                                Err(e) => {
+                                                    app.chat_lines.push(ChatLine::Error(format!("{e}")));
+                                                }
+                                            }
+                                            app.chat_lines.push(ChatLine::Spacer);
                                             continue;
                                         }
                                         PendingPrompt::None => {}
@@ -633,13 +685,14 @@ async fn tui_loop(
                                         streaming_line_idx: None,
                                         accumulated_text: String::new(),
                                         tools_seen: Vec::new(),
+                                        ask_user_pending: None,
                                     };
-
                                     let result = run_turn_streaming(provider.as_str(), resolve_api_key(provider).as_deref(), base_url, model.as_str(),
                                         conversation, &input, registry, system_prompt, max_turns, &mut handler, Some(permissions.clone())).await;
 
                                     let handler_accumulated = std::mem::take(&mut handler.accumulated_text);
                                     let handler_tools_seen = std::mem::take(&mut handler.tools_seen);
+                                    let handler_ask_user = std::mem::take(&mut handler.ask_user_pending);
                                     let handler_streaming_idx = handler.streaming_line_idx;
                                     // handler goes out of scope here, releasing app/terminal borrows
 
@@ -681,6 +734,28 @@ async fn tui_loop(
                                                         tool_id: first.id,
                                                     };
                                                 }
+                                            }
+
+                                            // Handle ask_user_question pending
+                                            if let Some((_, questions_json)) = handler_ask_user {
+                                                // Find the tool_call_id from the conversation
+                                                let tool_call_id = conversation.messages()
+                                                    .filter_map(|m| {
+                                                        if let AgentMessage::Tool { tool_call_id, content } = m {
+                                                            if content.starts_with("__AXGA_ASK_USER__") {
+                                                                Some(tool_call_id.clone())
+                                                            } else { None }
+                                                        } else { None }
+                                                    })
+                                                    .last()
+                                                    .unwrap_or_default();
+
+                                                app.is_streaming = false;
+                                                app.chat_lines.push(ChatLine::Info("Answer the following questions:".into()));
+                                                app.pending_prompt = PendingPrompt::AskUser {
+                                                    questions_json,
+                                                    tool_call_id,
+                                                };
                                             }
                                         }
                                         Err(e) => {
@@ -832,6 +907,43 @@ async fn tui_loop(
                                             continue;
                                         }
 
+                                        // Handle AskUserQuestion prompt
+                                        if let PendingPrompt::AskUser { questions_json, tool_call_id } = std::mem::replace(&mut app.pending_prompt, PendingPrompt::None) {
+                                            let answer_json = serde_json::json!({
+                                                "answer": input.trim(),
+                                                "questions": serde_json::from_str::<serde_json::Value>(&questions_json).unwrap_or_default()
+                                            });
+                                            app.chat_lines.push(ChatLine::Info(format!("Answer recorded: {}", input.trim())));
+                                            conversation.push(AgentMessage::Tool {
+                                                tool_call_id,
+                                                content: answer_json.to_string(),
+                                            });
+
+                                            let api_key = resolve_api_key(provider);
+                                            match continue_turn_streaming(
+                                                provider.as_str(), api_key.as_deref(), base_url, model.as_str(),
+                                                conversation, registry, system_prompt, max_turns,
+                                                &mut noop_handler, Some(permissions.clone()),
+                                                Vec::new(),
+                                            ).await {
+                                                Ok(turn) => {
+                                                    if !turn.final_text.is_empty() {
+                                                        app.chat_lines.push(ChatLine::Assistant(turn.final_text));
+                                                    }
+                                                    for tc in &turn.tool_calls_made {
+                                                        app.chat_lines.push(ChatLine::Tool { name: tc.clone(), detail: "executed".into() });
+                                                    }
+                                                    app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                                    app.update_context(conversation.len());
+                                                }
+                                                Err(e) => {
+                                                    app.chat_lines.push(ChatLine::Error(format!("{e}")));
+                                                }
+                                            }
+                                            app.chat_lines.push(ChatLine::Spacer);
+                                            continue;
+                                        }
+
                                         app.chat_lines.push(ChatLine::User(input.clone()));
 
                                         let mut handler = TuiStreamHandler {
@@ -840,6 +952,7 @@ async fn tui_loop(
                                             streaming_line_idx: None,
                                             accumulated_text: String::new(),
                                             tools_seen: Vec::new(),
+                                            ask_user_pending: None,
                                         };
 
                                         let result = run_turn_streaming(provider.as_str(), resolve_api_key(provider).as_deref(), base_url, model.as_str(),
@@ -847,6 +960,7 @@ async fn tui_loop(
 
                                         let handler_accumulated = std::mem::take(&mut handler.accumulated_text);
                                         let handler_tools_seen = std::mem::take(&mut handler.tools_seen);
+                                        let handler_ask_user = std::mem::take(&mut handler.ask_user_pending);
                                         let handler_streaming_idx = handler.streaming_line_idx;
                                         // handler goes out of scope here, releasing app/terminal borrows
 
@@ -880,6 +994,27 @@ async fn tui_loop(
                                                             tool_id: first.id,
                                                         };
                                                     }
+                                                }
+
+                                                // Handle ask_user_question pending
+                                                if let Some((_, questions_json)) = handler_ask_user {
+                                                    let tool_call_id = conversation.messages()
+                                                        .filter_map(|m| {
+                                                            if let AgentMessage::Tool { tool_call_id, content } = m {
+                                                                if content.starts_with("__AXGA_ASK_USER__") {
+                                                                    Some(tool_call_id.clone())
+                                                                } else { None }
+                                                            } else { None }
+                                                        })
+                                                        .last()
+                                                        .unwrap_or_default();
+
+                                                    app.is_streaming = false;
+                                                    app.chat_lines.push(ChatLine::Info("Answer the following questions:".into()));
+                                                    app.pending_prompt = PendingPrompt::AskUser {
+                                                        questions_json,
+                                                        tool_call_id,
+                                                    };
                                                 }
                                             }
                                             Err(e) => {

@@ -73,6 +73,13 @@ pub enum PendingPrompt {
     Model { provider: String },
     /// Waiting for tool approval (y=yes, n=no, a=approve all)
     ApprovalDialog { tool_name: String, tool_args: String, tool_id: String },
+    /// AskUserQuestion dialog — shows questions and collects answers
+    AskUser {
+        /// JSON string of the questions array
+        questions_json: String,
+        /// The tool_call_id this answer belongs to
+        tool_call_id: String,
+    },
 }
 
 #[derive(Debug, Clone)]

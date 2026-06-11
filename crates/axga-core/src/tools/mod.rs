@@ -16,11 +16,18 @@ pub mod task_output;
 pub mod task_stop;
 pub mod agent;
 pub mod agent_swarm;
+pub mod plan;
+pub mod ask_user;
 
 use axga_shared::error::AxgaResult;
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
+
+/// Global plan mode flag. When true, write/shell/network-mutating tools are
+/// blocked. Read-only tools (read_file, grep, glob, etc.) still work.
+pub static PLAN_MODE: AtomicBool = AtomicBool::new(false);
 
 // Re-export task manager types for use by shell and task tools.
 pub use task_manager::{TaskManager, TaskHandle, TaskStatus, TaskInfo};

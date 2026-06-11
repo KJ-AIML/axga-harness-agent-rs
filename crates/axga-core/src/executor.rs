@@ -17,9 +17,12 @@ use axga_shared::error::AxgaResult;
 use axga_shared::limits;
 use axga_shared::types::ToolResult;
 use crate::tools::registry::ToolRegistry;
+use crate::tools::plan::is_plan_mode_safe;
+use crate::tools::PLAN_MODE;
 use crate::permission::{Permission, PermissionManager};
 use axga_shared::types::ToolCall;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -218,6 +221,23 @@ async fn execute_single_tool(
                 });
             }
         }
+    }
+
+    // Check plan mode: block write/shell/network-mutating tools
+    if PLAN_MODE.load(Ordering::SeqCst) && !is_plan_mode_safe(&call.name) {
+        warn!(tool = %call.name, "tool blocked by plan mode");
+        return Ok(ToolResult {
+            tool_call_id: call.id.clone(),
+            content: format!(
+                "Cannot execute '{}' in plan mode. \
+                 Only read-only tools (read_file, list_directory, grep, glob, \
+                 diff, web_search, fetch_url, memctrl) are allowed. \
+                 Use exit_plan_mode to exit plan mode and re-enable all tools.",
+                call.name
+            ),
+            is_error: true,
+            force_stop: false,
+        });
     }
 
     let tool = registry
