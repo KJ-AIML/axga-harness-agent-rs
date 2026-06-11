@@ -10,11 +10,18 @@ pub mod code;
 pub mod memctrl_native;
 pub mod web_search;
 pub mod fetch_url;
+pub mod task_manager;
+pub mod task_list;
+pub mod task_output;
+pub mod task_stop;
 
 use axga_shared::error::AxgaResult;
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
+
+// Re-export task manager types for use by shell and task tools.
+pub use task_manager::{TaskManager, TaskHandle, TaskStatus, TaskInfo};
 
 /// A registered tool that the agent can invoke.
 ///

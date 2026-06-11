@@ -72,6 +72,12 @@ pub struct ToolsSection {
     pub web_search: bool,
     #[serde(default)]
     pub fetch_url: bool,
+    #[serde(default = "default_true")]
+    pub task_list: bool,
+    #[serde(default = "default_true")]
+    pub task_output: bool,
+    #[serde(default = "default_true")]
+    pub task_stop: bool,
     #[serde(default)]
     pub image_vision: bool,
 }

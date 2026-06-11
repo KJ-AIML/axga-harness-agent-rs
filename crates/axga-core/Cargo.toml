@@ -27,6 +27,9 @@ toml = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 uuid.workspace = true
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 default = ["memctrl-native"]
 memctrl-native = ["rusqlite"]

@@ -64,6 +64,8 @@ pub struct ToolResult {
     pub tool_call_id: String,
     pub content: String,
     pub is_error: bool,
+    /// When true, the agent loop should stop this turn immediately (used by dedup detection).
+    pub force_stop: bool,
 }
 
 // ─── Streaming Events ─────────────────────────────────────────────

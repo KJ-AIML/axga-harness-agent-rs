@@ -54,7 +54,7 @@ pub enum InputMode {
     Command,
 }
 
-/// Interactive wizard state for guided provider setup.
+/// Interactive wizard state for guided provider setup and tool approvals.
 #[derive(Debug, Clone)]
 pub enum PendingPrompt {
     None,
@@ -62,6 +62,8 @@ pub enum PendingPrompt {
     ApiKey { provider: String, model: Option<String> },
     /// Waiting for model selection
     Model { provider: String },
+    /// Waiting for tool approval (y=yes, n=no, a=approve all)
+    ApprovalDialog { tool_name: String, tool_args: String, tool_id: String },
 }
 
 #[derive(Debug, Clone)]

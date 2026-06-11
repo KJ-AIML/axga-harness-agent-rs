@@ -11,7 +11,55 @@ use axga_shared::limits;
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Sensitive file patterns checked by basename or extension.
+const SENSITIVE_BASENAMES: &[&str] = &[
+    ".env", "id_rsa", "id_ed25519", "id_ecdsa",
+    "credentials", ".git-credentials", "secrets",
+];
+
+/// Basename prefixes that indicate sensitive files.
+const SENSITIVE_PREFIXES: &[&str] = &[".env."];
+
+/// Extensions that indicate sensitive files.
+const SENSITIVE_EXTENSIONS: &[&str] = &["pem", "key"];
+
+/// Sensitive path-component sequences (e.g. ".aws/credentials").
+const SENSITIVE_PATH_SEQUENCES: &[&[&str]] = &[&[".aws", "credentials"]];
+
+/// Returns `true` if `path` matches a sensitive-file pattern.
+fn is_sensitive(path: &Path) -> bool {
+    // Check basename
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if SENSITIVE_BASENAMES.contains(&name) {
+            return true;
+        }
+        for prefix in SENSITIVE_PREFIXES {
+            if name.starts_with(prefix) {
+                return true;
+            }
+        }
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            if SENSITIVE_EXTENSIONS.contains(&ext) {
+                return true;
+            }
+        }
+    }
+
+    // Check path-component sequences
+    let components: Vec<&str> = path
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
+    for seq in SENSITIVE_PATH_SEQUENCES {
+        if components.windows(seq.len()).any(|w| w == *seq) {
+            return true;
+        }
+    }
+
+    false
+}
 
 pub struct ReadFileTool;
 
@@ -37,6 +85,9 @@ impl Tool for ReadFileTool {
                 tool: "read_file".into(), message: "missing 'path'".into(),
             })?;
             let path = PathBuf::from(path_str);
+            if is_sensitive(&path) {
+                return Err(AxgaError::AccessDenied(path.display().to_string()));
+            }
             if !path.exists() {
                 return Err(AxgaError::FileNotFound(path.display().to_string()));
             }
@@ -87,6 +138,9 @@ impl Tool for WriteFileTool {
                 tool: "write_file".into(), message: "missing 'content'".into(),
             })?;
             let path = PathBuf::from(path_str);
+            if is_sensitive(&path) {
+                return Err(AxgaError::AccessDenied(path.display().to_string()));
+            }
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }

@@ -19,18 +19,20 @@ use axga_shared::types::{
 use axga_ai::request::RequestBuilder;
 use axga_ai::Provider;
 use crate::state::Conversation;
-use crate::executor::execute_tool_calls;
+use crate::executor::{execute_tool_calls, DedupTracker};
 use crate::permission::PermissionManager;
 use crate::ToolRegistry;
 use futures::{Stream, StreamExt};
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Result of one full turn (may include multiple LLM calls + tool executions).
 pub struct TurnResult {
     pub final_text: String,
     pub tool_calls_made: Vec<String>,
     pub total_tokens: u32,
+    /// Tool calls that need user approval before execution.
+    pub pending_approvals: Vec<ToolCall>,
 }
 
 /// Handler for streaming events during an agent turn.
@@ -70,6 +72,7 @@ pub async fn run_turn(
     let mut final_text = String::new();
     let mut tool_calls_made: Vec<String> = Vec::new();
     let mut total_tokens: u32 = 0;
+    let mut dedup = DedupTracker::new();
 
     for turn in 0..max_turns {
         debug!(turn, "agent loop iteration");
@@ -159,16 +162,34 @@ pub async fn run_turn(
             break;
         }
 
-        let results = execute_tool_calls(tools, &valid_tool_calls, permissions.clone()).await?;
+        // Pre-screen tool calls for permissions
+        let (approved_tc, pending_tc) = if let Some(ref perms) = permissions {
+            perms.check_batch(&valid_tool_calls)
+        } else {
+            (valid_tool_calls.clone(), vec![])
+        };
 
-        for tc in &valid_tool_calls {
+        // Execute approved tool calls
+        let results = if !approved_tc.is_empty() {
+            execute_tool_calls(tools, &approved_tc, permissions.clone(), &mut dedup).await?
+        } else {
+            vec![]
+        };
+
+        let should_stop = results.iter().any(|r| r.force_stop);
+
+        for tc in &approved_tc {
             tool_calls_made.push(tc.name.clone());
         }
+
+        // Build combined tool calls for the assistant message (approved + pending)
+        let mut all_tool_calls = approved_tc.clone();
+        all_tool_calls.extend(pending_tc.clone());
 
         conversation.push(AgentMessage::Assistant {
             content: AssistantContent {
                 text: Some(text),
-                tool_calls: Some(valid_tool_calls.clone()),
+                tool_calls: Some(all_tool_calls),
                 thinking: None,
             },
         });
@@ -180,6 +201,22 @@ pub async fn run_turn(
                 content: truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN),
             });
         }
+
+        if should_stop {
+            warn!("dedup force-stop: breaking agent loop");
+            break;
+        }
+
+        // Return pending approvals if any
+        if !pending_tc.is_empty() {
+            conversation.set_state(axga_shared::types::AgentState::WaitingForTools);
+            return Ok(TurnResult {
+                final_text,
+                tool_calls_made,
+                total_tokens,
+                pending_approvals: pending_tc,
+            });
+        }
     }
 
     conversation.set_state(axga_shared::types::AgentState::Finished);
@@ -188,6 +225,7 @@ pub async fn run_turn(
         final_text,
         tool_calls_made,
         total_tokens,
+        pending_approvals: vec![],
     })
 }
 
@@ -291,6 +329,7 @@ pub async fn run_turn_streaming(
     let mut final_text = String::new();
     let mut tool_calls_made: Vec<String> = Vec::new();
     let mut total_tokens: u32 = 0;
+    let mut dedup = DedupTracker::new();
 
     handler.on_thinking();
 
@@ -382,9 +421,23 @@ pub async fn run_turn_streaming(
             break;
         }
 
-        let results = execute_tool_calls(tools, &valid_tool_calls, permissions.clone()).await?;
+        // Pre-screen tool calls for permissions
+        let (approved_tc, pending_tc) = if let Some(ref perms) = permissions {
+            perms.check_batch(&valid_tool_calls)
+        } else {
+            (valid_tool_calls.clone(), vec![])
+        };
 
-        for tc in &valid_tool_calls {
+        // Execute approved tool calls
+        let results = if !approved_tc.is_empty() {
+            execute_tool_calls(tools, &approved_tc, permissions.clone(), &mut dedup).await?
+        } else {
+            vec![]
+        };
+
+        let should_stop = results.iter().any(|r| r.force_stop);
+
+        for tc in &approved_tc {
             tool_calls_made.push(tc.name.clone());
         }
 
@@ -392,8 +445,7 @@ pub async fn run_turn_streaming(
         for result in &results {
             if result.tool_call_id.is_empty() { continue; }
             let truncated = truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN);
-            // Find the tool name for this result
-            let tc_name = valid_tool_calls
+            let tc_name = approved_tc
                 .iter()
                 .find(|tc| tc.id == result.tool_call_id)
                 .map(|tc| tc.name.as_str())
@@ -401,10 +453,14 @@ pub async fn run_turn_streaming(
             handler.on_tool_call_result(tc_name, &truncated);
         }
 
+        // Build combined tool calls for the assistant message (approved + pending)
+        let mut all_tool_calls = approved_tc.clone();
+        all_tool_calls.extend(pending_tc.clone());
+
         conversation.push(AgentMessage::Assistant {
             content: AssistantContent {
                 text: Some(text),
-                tool_calls: Some(valid_tool_calls.clone()),
+                tool_calls: Some(all_tool_calls),
                 thinking: None,
             },
         });
@@ -416,6 +472,23 @@ pub async fn run_turn_streaming(
                 content: truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN),
             });
         }
+
+        if should_stop {
+            warn!("dedup force-stop: breaking agent loop");
+            break;
+        }
+
+        // Return pending approvals if any
+        if !pending_tc.is_empty() {
+            conversation.set_state(axga_shared::types::AgentState::WaitingForTools);
+            handler.on_done();
+            return Ok(TurnResult {
+                final_text,
+                tool_calls_made,
+                total_tokens,
+                pending_approvals: pending_tc,
+            });
+        }
     }
 
     conversation.set_state(axga_shared::types::AgentState::Finished);
@@ -425,6 +498,204 @@ pub async fn run_turn_streaming(
         final_text,
         tool_calls_made,
         total_tokens,
+        pending_approvals: vec![],
+    })
+}
+
+/// Continue an agent turn after pending tool approvals are resolved.
+///
+/// Executes the previously-pending tool calls (PermissionManager has been updated
+/// with user's approval/denial decisions), pushes results, and continues the
+/// agent loop if needed.
+#[allow(clippy::too_many_arguments)]
+pub async fn continue_turn_streaming(
+    provider_type: &str,
+    api_key: Option<&str>,
+    base_url: Option<&str>,
+    model: &str,
+    conversation: &mut Conversation,
+    tools: &ToolRegistry,
+    system_prompt: Option<&str>,
+    max_turns: usize,
+    handler: &mut dyn StreamHandler,
+    permissions: Option<Arc<PermissionManager>>,
+    pending_calls: Vec<ToolCall>,
+) -> AxgaResult<TurnResult> {
+    let mut tool_calls_made: Vec<String> = Vec::new();
+    let mut total_tokens: u32 = 0;
+
+    // Execute the previously-pending tool calls (now resolved by user)
+    if !pending_calls.is_empty() {
+        let mut dedup = DedupTracker::new();
+        let results = execute_tool_calls(tools, &pending_calls, permissions.clone(), &mut dedup).await?;
+
+        for tc in &pending_calls {
+            tool_calls_made.push(tc.name.clone());
+        }
+
+        // Notify handler of tool results
+        for result in &results {
+            if result.tool_call_id.is_empty() { continue; }
+            let truncated = truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN);
+            let tc_name = pending_calls
+                .iter()
+                .find(|tc| tc.id == result.tool_call_id)
+                .map(|tc| tc.name.as_str())
+                .unwrap_or("unknown");
+            handler.on_tool_call_result(tc_name, &truncated);
+        }
+
+        // Push results to conversation
+        for result in results {
+            if result.tool_call_id.is_empty() { continue; }
+            conversation.push(AgentMessage::Tool {
+                tool_call_id: result.tool_call_id,
+                content: truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN),
+            });
+        }
+    }
+
+    // Continue the agent loop — let LLM respond with tool results now available
+    // This follows the same loop pattern as run_turn_streaming
+    for _turn in 0..max_turns {
+        let tool_defs: Vec<ToolDefinition> = tools
+            .names()
+            .filter_map(|name| tools.get(name))
+            .map(|tool| ToolDefinition {
+                name: tool.name().to_string(),
+                description: tool.description().to_string(),
+                parameters: tool.parameters(),
+            })
+            .collect();
+
+        let messages: Vec<AgentMessage> = conversation.messages().cloned().collect();
+        let request = RequestBuilder::new(model, &messages).with_max_tokens(4096);
+        let request = if let Some(sys) = system_prompt {
+            request.with_system_prompt(sys)
+        } else {
+            request
+        };
+        let request = if !tool_defs.is_empty() {
+            request.with_tools(&tool_defs)
+        } else {
+            request
+        };
+
+        let provider: Box<dyn Provider> = match provider_type {
+            "openai" => Box::new(axga_ai::providers::openai::OpenAiProvider::new(
+                api_key.map(|s| s.to_string()),
+                base_url.map(|s| s.to_string()),
+            )?),
+            "deepseek" => Box::new(axga_ai::providers::deepseek::DeepSeekProvider::new(
+                api_key.map(|s| s.to_string()),
+                base_url.map(|s| s.to_string()),
+            )?),
+            "anthropic" => Box::new(axga_ai::providers::anthropic::AnthropicProvider::new(
+                api_key.map(|s| s.to_string()),
+            )?),
+            _ => return Err(AxgaError::Config(format!("unknown provider: {provider_type}"))),
+        };
+
+        let mut stream = provider.stream_chat(&request).await?;
+        let (text, tool_calls, token_count) =
+            collect_stream_with_handler(&mut stream, handler).await?;
+        total_tokens += token_count;
+
+        if tool_calls.is_empty() {
+            conversation.push(AgentMessage::Assistant {
+                content: AssistantContent {
+                    text: Some(text),
+                    tool_calls: None,
+                    thinking: None,
+                },
+            });
+            break;
+        }
+
+        let valid_tool_calls: Vec<ToolCall> = tool_calls
+            .into_iter()
+            .filter(|tc| !tc.id.is_empty() && !tc.name.is_empty())
+            .collect();
+
+        if valid_tool_calls.is_empty() {
+            conversation.push(AgentMessage::Assistant {
+                content: AssistantContent {
+                    text: Some(text),
+                    tool_calls: None,
+                    thinking: None,
+                },
+            });
+            break;
+        }
+
+        // Pre-screen tool calls for permissions
+        let (approved_tc, pending_tc) = if let Some(ref perms) = permissions {
+            perms.check_batch(&valid_tool_calls)
+        } else {
+            (valid_tool_calls.clone(), vec![])
+        };
+
+        let results = if !approved_tc.is_empty() {
+            let mut dedup2 = DedupTracker::new();
+            execute_tool_calls(tools, &approved_tc, permissions.clone(), &mut dedup2).await?
+        } else {
+            vec![]
+        };
+
+        for tc in &approved_tc {
+            tool_calls_made.push(tc.name.clone());
+        }
+
+        for result in &results {
+            if result.tool_call_id.is_empty() { continue; }
+            let truncated = truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN);
+            let tc_name = approved_tc
+                .iter()
+                .find(|tc| tc.id == result.tool_call_id)
+                .map(|tc| tc.name.as_str())
+                .unwrap_or("unknown");
+            handler.on_tool_call_result(tc_name, &truncated);
+        }
+
+        let mut all_tool_calls = approved_tc.clone();
+        all_tool_calls.extend(pending_tc.clone());
+
+        conversation.push(AgentMessage::Assistant {
+            content: AssistantContent {
+                text: Some(text.clone()),
+                tool_calls: Some(all_tool_calls),
+                thinking: None,
+            },
+        });
+
+        for result in results {
+            if result.tool_call_id.is_empty() { continue; }
+            conversation.push(AgentMessage::Tool {
+                tool_call_id: result.tool_call_id,
+                content: truncate(&result.content, limits::MAX_TOOL_OUTPUT_LEN),
+            });
+        }
+
+        if !pending_tc.is_empty() {
+            conversation.set_state(axga_shared::types::AgentState::WaitingForTools);
+            handler.on_done();
+            return Ok(TurnResult {
+                final_text: text,
+                tool_calls_made,
+                total_tokens,
+                pending_approvals: pending_tc,
+            });
+        }
+    }
+
+    conversation.set_state(axga_shared::types::AgentState::Finished);
+    handler.on_done();
+
+    Ok(TurnResult {
+        final_text: String::new(),
+        tool_calls_made,
+        total_tokens,
+        pending_approvals: vec![],
     })
 }
 

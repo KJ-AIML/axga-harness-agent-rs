@@ -5,7 +5,8 @@
 
 use axga_tui::app::{App, ChatLine, InputMode, PendingPrompt};
 use axga_tui::theme;
-use axga_core::{Conversation, ToolRegistry, run_turn_streaming, StreamHandler, load_config, save_config, PermissionManager, PermissionMode};
+use axga_core::{Conversation, ToolRegistry, run_turn_streaming, continue_turn_streaming, StreamHandler, load_config, save_config, PermissionManager, PermissionMode};
+use axga_shared::types::ToolCall;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::DefaultTerminal;
 use std::sync::Arc;
@@ -138,6 +139,17 @@ impl StreamHandler for TuiStreamHandler<'_, '_> {
     }
 }
 
+/// No-op stream handler for when we just need to execute tools without real-time rendering.
+struct NoopStreamHandler;
+
+impl StreamHandler for NoopStreamHandler {
+    fn on_thinking(&mut self) {}
+    fn on_text_delta(&mut self, _text: &str) {}
+    fn on_tool_call_delta(&mut self, _id: &str, _name: &str, _args: &str) {}
+    fn on_tool_call_result(&mut self, _name: &str, _result: &str) {}
+    fn on_done(&mut self) {}
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn tui_loop(
     terminal: &mut DefaultTerminal,
@@ -152,6 +164,9 @@ async fn tui_loop(
     permissions: Arc<PermissionManager>,
 ) -> anyhow::Result<()> {
     let mut spinner_tick: usize = 0;
+    let mut pending_approvals_stack: Vec<ToolCall> = Vec::new();
+    let mut resolved_calls: Vec<ToolCall> = Vec::new();
+    let mut noop_handler = NoopStreamHandler;
 
     loop {
         app.spinner_idx = spinner_tick;
@@ -238,6 +253,85 @@ async fn tui_loop(
                                             conversation.reset();
                                             app.chat_lines.push(ChatLine::Info(format!("Switched to {p} / {model}")));
                                             app.chat_lines.push(ChatLine::Info("Ready to chat!".into()));
+                                            continue;
+                                        }
+                                        PendingPrompt::ApprovalDialog { tool_name, tool_args, tool_id } => {
+                                            match input.trim().to_lowercase().as_str() {
+                                                "y" | "yes" => {
+                                                    permissions.approve(&tool_name);
+                                                    app.chat_lines.push(ChatLine::Info(format!("Approved: {tool_name}")));
+                                                }
+                                                "n" | "no" => {
+                                                    permissions.deny(&tool_name);
+                                                    app.chat_lines.push(ChatLine::Info(format!("Denied: {tool_name}")));
+                                                }
+                                                "a" | "all" => {
+                                                    permissions.approve_all();
+                                                    pending_approvals_stack.clear();
+                                                    app.chat_lines.push(ChatLine::Info("Approved all — switched to Auto mode".into()));
+                                                }
+                                                _ => {
+                                                    app.chat_lines.push(ChatLine::Error("Type 'y' (approve), 'n' (deny), or 'a' (approve all)".to_string()));
+                                                    app.pending_prompt = PendingPrompt::ApprovalDialog { tool_name, tool_args, tool_id };
+                                                    continue;
+                                                }
+                                            }
+                                            // Pop next pending approval or execute resolved if stack is empty
+                                            if let Some(next) = pending_approvals_stack.pop() {
+                                                let args_display = serde_json::to_string_pretty(&next.arguments)
+                                                    .unwrap_or_else(|_| String::new());
+                                                app.chat_lines.push(ChatLine::Info(format!(
+                                                    "Pending approval: {} <- {} ({})",
+                                                    next.name, &args_display[..std::cmp::min(80, args_display.len())],
+                                                    if args_display.len() > 80 { "..." } else { "" }
+                                                )));
+                                                app.pending_prompt = PendingPrompt::ApprovalDialog {
+                                                    tool_name: next.name,
+                                                    tool_args: args_display,
+                                                    tool_id: next.id,
+                                                };
+                                            } else {
+                                                // All resolved — continue the agent turn
+                                                let api_key = resolve_api_key(provider);
+                                                match axga_core::continue_turn_streaming(
+                                                    provider.as_str(), api_key.as_deref(), base_url, model.as_str(),
+                                                    conversation, registry, system_prompt, max_turns,
+                                                    &mut noop_handler, Some(permissions.clone()),
+                                                    std::mem::take(&mut resolved_calls),
+                                                ).await {
+                                                    Ok(turn) => {
+                                                        if !turn.final_text.is_empty() {
+                                                            app.chat_lines.push(ChatLine::Assistant(turn.final_text));
+                                                        }
+                                                        for tc in &turn.tool_calls_made {
+                                                            app.chat_lines.push(ChatLine::Tool { name: tc.clone(), detail: "executed".into() });
+                                                        }
+                                                        app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                                        // Handle any new pending approvals
+                                                        if !turn.pending_approvals.is_empty() {
+                                                            resolved_calls = turn.pending_approvals.clone();
+                                                            pending_approvals_stack = turn.pending_approvals.into_iter().rev().collect();
+                                                            if let Some(next) = pending_approvals_stack.pop() {
+                                                                let args_display = serde_json::to_string_pretty(&next.arguments)
+                                                                    .unwrap_or_else(|_| String::new());
+                                                                app.chat_lines.push(ChatLine::Info(format!(
+                                                                    "Pending approval: {} <- {}",
+                                                                    next.name, &args_display[..std::cmp::min(80, args_display.len())]
+                                                                )));
+                                                                app.pending_prompt = PendingPrompt::ApprovalDialog {
+                                                                    tool_name: next.name,
+                                                                    tool_args: args_display,
+                                                                    tool_id: next.id,
+                                                                };
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        app.chat_lines.push(ChatLine::Error(format!("{e}")));
+                                                    }
+                                                }
+                                                app.chat_lines.push(ChatLine::Spacer);
+                                            }
                                             continue;
                                         }
                                         PendingPrompt::None => {}
@@ -467,6 +561,27 @@ async fn tui_loop(
                                                 app.chat_lines.push(ChatLine::Assistant(turn.final_text));
                                             }
                                             app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+
+                                            // Handle pending approvals
+                                            if !turn.pending_approvals.is_empty() {
+                                                app.is_streaming = false;
+                                                resolved_calls = turn.pending_approvals.clone();
+                                                pending_approvals_stack = turn.pending_approvals.into_iter().rev().collect();
+                                                if let Some(first) = pending_approvals_stack.pop() {
+                                                    let args_display = serde_json::to_string_pretty(&first.arguments)
+                                                        .unwrap_or_else(|_| String::new());
+                                                    app.chat_lines.push(ChatLine::Info(format!(
+                                                        "Tool needs approval: {} <- {}",
+                                                        first.name,
+                                                        &args_display[..std::cmp::min(80, args_display.len())]
+                                                    )));
+                                                    app.pending_prompt = PendingPrompt::ApprovalDialog {
+                                                        tool_name: first.name,
+                                                        tool_args: args_display,
+                                                        tool_id: first.id,
+                                                    };
+                                                }
+                                            }
                                         }
                                         Err(e) => {
                                             app.is_streaming = false;
@@ -538,6 +653,84 @@ async fn tui_loop(
                                     // Submit from normal mode
                                     let input = std::mem::take(&mut app.input);
                                     if !input.trim().is_empty() {
+
+                                        // Handle pending prompts from normal mode too
+                                        if let PendingPrompt::ApprovalDialog { tool_name, tool_args, tool_id } = std::mem::replace(&mut app.pending_prompt, PendingPrompt::None) {
+                                            match input.trim().to_lowercase().as_str() {
+                                                "y" | "yes" => {
+                                                    permissions.approve(&tool_name);
+                                                    app.chat_lines.push(ChatLine::Info(format!("Approved: {tool_name}")));
+                                                }
+                                                "n" | "no" => {
+                                                    permissions.deny(&tool_name);
+                                                    app.chat_lines.push(ChatLine::Info(format!("Denied: {tool_name}")));
+                                                }
+                                                "a" | "all" => {
+                                                    permissions.approve_all();
+                                                    pending_approvals_stack.clear();
+                                                    app.chat_lines.push(ChatLine::Info("Approved all — switched to Auto mode".into()));
+                                                }
+                                                _ => {
+                                                    app.chat_lines.push(ChatLine::Error("Type 'y' (approve), 'n' (deny), or 'a' (approve all)".into()));
+                                                    app.pending_prompt = PendingPrompt::ApprovalDialog { tool_name, tool_args, tool_id };
+                                                    continue;
+                                                }
+                                            }
+                                            if let Some(next) = pending_approvals_stack.pop() {
+                                                let args_display = serde_json::to_string_pretty(&next.arguments)
+                                                    .unwrap_or_else(|_| String::new());
+                                                app.chat_lines.push(ChatLine::Info(format!(
+                                                    "Pending approval: {} <- {}",
+                                                    next.name, &args_display[..std::cmp::min(80, args_display.len())]
+                                                )));
+                                                app.pending_prompt = PendingPrompt::ApprovalDialog {
+                                                    tool_name: next.name,
+                                                    tool_args: args_display,
+                                                    tool_id: next.id,
+                                                };
+                                            } else {
+                                                let api_key = resolve_api_key(provider);
+                                                match continue_turn_streaming(
+                                                    provider.as_str(), api_key.as_deref(), base_url, model.as_str(),
+                                                    conversation, registry, system_prompt, max_turns,
+                                                    &mut noop_handler, Some(permissions.clone()),
+                                                    std::mem::take(&mut resolved_calls),
+                                                ).await {
+                                                    Ok(turn) => {
+                                                        if !turn.final_text.is_empty() {
+                                                            app.chat_lines.push(ChatLine::Assistant(turn.final_text));
+                                                        }
+                                                        for tc in &turn.tool_calls_made {
+                                                            app.chat_lines.push(ChatLine::Tool { name: tc.clone(), detail: "executed".into() });
+                                                        }
+                                                        app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+                                                        if !turn.pending_approvals.is_empty() {
+                                                            resolved_calls = turn.pending_approvals.clone();
+                                                            pending_approvals_stack = turn.pending_approvals.into_iter().rev().collect();
+                                                            if let Some(next) = pending_approvals_stack.pop() {
+                                                                let args_display = serde_json::to_string_pretty(&next.arguments)
+                                                                    .unwrap_or_else(|_| String::new());
+                                                                app.chat_lines.push(ChatLine::Info(format!(
+                                                                    "Pending approval: {} <- {}",
+                                                                    next.name, &args_display[..std::cmp::min(80, args_display.len())]
+                                                                )));
+                                                                app.pending_prompt = PendingPrompt::ApprovalDialog {
+                                                                    tool_name: next.name,
+                                                                    tool_args: args_display,
+                                                                    tool_id: next.id,
+                                                                };
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        app.chat_lines.push(ChatLine::Error(format!("{e}")));
+                                                    }
+                                                }
+                                                app.chat_lines.push(ChatLine::Spacer);
+                                            }
+                                            continue;
+                                        }
+
                                         app.chat_lines.push(ChatLine::User(input.clone()));
 
                                         let mut handler = TuiStreamHandler {
@@ -567,6 +760,25 @@ async fn tui_loop(
                                                     app.chat_lines.push(ChatLine::Assistant(turn.final_text));
                                                 }
                                                 app.status.tokens_used = app.status.tokens_used.saturating_add(turn.total_tokens);
+
+                                                if !turn.pending_approvals.is_empty() {
+                                                    app.is_streaming = false;
+                                                    resolved_calls = turn.pending_approvals.clone();
+                                                    pending_approvals_stack = turn.pending_approvals.into_iter().rev().collect();
+                                                    if let Some(first) = pending_approvals_stack.pop() {
+                                                        let args_display = serde_json::to_string_pretty(&first.arguments)
+                                                            .unwrap_or_else(|_| String::new());
+                                                        app.chat_lines.push(ChatLine::Info(format!(
+                                                            "Tool needs approval: {} <- {}",
+                                                            first.name, &args_display[..std::cmp::min(80, args_display.len())]
+                                                        )));
+                                                        app.pending_prompt = PendingPrompt::ApprovalDialog {
+                                                            tool_name: first.name,
+                                                            tool_args: args_display,
+                                                            tool_id: first.id,
+                                                        };
+                                                    }
+                                                }
                                             }
                                             Err(e) => {
                                                 app.is_streaming = false;

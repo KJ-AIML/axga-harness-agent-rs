@@ -33,6 +33,9 @@ pub enum AxgaError {
     #[error("File not found: {0}")]
     FileNotFound(String),
 
+    #[error("Access denied: {0} is a sensitive file")]
+    AccessDenied(String),
+
     #[error("Token limit exceeded: {used}/{max}")]
     TokenLimitExceeded { used: u32, max: u32 },
 

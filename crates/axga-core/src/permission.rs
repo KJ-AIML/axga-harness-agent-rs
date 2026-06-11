@@ -106,4 +106,22 @@ impl PermissionManager {
     pub fn set_mode(&self, mode: PermissionMode) {
         *self.mode.lock().unwrap() = mode;
     }
+
+    /// Pre-screen a batch of tool calls, splitting them into approved and pending.
+    /// Returns (approved_calls, pending_calls_that_need_asking).
+    pub fn check_batch(
+        &self,
+        calls: &[axga_shared::types::ToolCall],
+    ) -> (Vec<axga_shared::types::ToolCall>, Vec<axga_shared::types::ToolCall>) {
+        let mut approved = Vec::new();
+        let mut pending = Vec::new();
+        for call in calls {
+            match self.check(&call.name) {
+                Permission::Allow => approved.push(call.clone()),
+                Permission::Ask => pending.push(call.clone()),
+                Permission::Deny => {} // silently skip denied tools
+            }
+        }
+        (approved, pending)
+    }
 }
