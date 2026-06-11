@@ -209,9 +209,11 @@ pub async fn run_discord_bot(
                     Some(goal_manager.clone()),
                 )?;
 
-                struct DiscordHandler;
+                struct DiscordHandler {
+                    text: String,
+                }
                 impl StreamHandler for DiscordHandler {
-                    fn on_text_delta(&mut self, _text: &str) {}
+                    fn on_text_delta(&mut self, text: &str) { self.text.push_str(text); }
                     fn on_tool_call_delta(
                         &mut self,
                         _id: &str,
@@ -230,6 +232,7 @@ pub async fn run_discord_bot(
                 }
 
                 // ── Run agent ──
+                let mut handler = DiscordHandler { text: String::new() };
                 let result = run_turn_streaming(
                     provider,
                     api_key,
@@ -240,17 +243,36 @@ pub async fn run_discord_bot(
                     &registry,
                     system_prompt,
                     10,
-                    &mut DiscordHandler,
+                    &mut handler,
                     Some(permissions.clone()),
                 )
                 .await;
 
                 match result {
                     Ok(turn) => {
-                        let reply = if turn.final_text.is_empty() {
-                            "Done. No output.".to_string()
+                        // Use handler's accumulated text (includes post-tool response)
+                        let response_text = if !handler.text.is_empty() {
+                            handler.text.clone()
+                        } else if !turn.final_text.is_empty() {
+                            turn.final_text.clone()
                         } else {
-                            truncate_discord(&turn.final_text, 1900)
+                            "Done. No output.".to_string()
+                        };
+                        // If pending approvals, auto-approve and continue
+                        if !turn.pending_approvals.is_empty() {
+                            permissions.approve_all();
+                            let _ = axga_core::continue_turn_streaming(
+                                provider, api_key, base_url, model,
+                                &mut conversation, &registry,
+                                system_prompt, 10,
+                                &mut handler, Some(permissions.clone()),
+                                turn.pending_approvals,
+                            ).await;
+                        }
+                        let reply = if !handler.text.is_empty() {
+                            truncate_discord(&handler.text, 1900)
+                        } else {
+                            truncate_discord(&response_text, 1900)
                         };
                         println!("🤖 → {reply}");
 
