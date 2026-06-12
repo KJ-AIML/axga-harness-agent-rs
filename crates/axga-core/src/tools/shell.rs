@@ -329,9 +329,14 @@ mod tests {
 
     #[tokio::test]
     async fn foreground_timeout_kills_command() {
+        #[cfg(target_os = "windows")]
+        let sleep_command = "ping -n 11 127.0.0.1 >nul";
+        #[cfg(not(target_os = "windows"))]
+        let sleep_command = "sleep 10";
+
         let tool = ShellTool::new(false, test_tm());
         let result = tool.execute(serde_json::json!({
-            "command": "sleep 10",
+            "command": sleep_command,
             "timeout": 1
         })).await;
         assert!(result.is_err());

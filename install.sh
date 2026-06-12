@@ -10,7 +10,7 @@
 set -e
 
 REPO="KJ-AIML/axga-harness-agent-rs"
-DEFAULT_VERSION="v0.1.1"
+DEFAULT_VERSION="latest"
 INSTALL_DIR="${AXGA_INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="axga"
 
@@ -38,19 +38,60 @@ while [ $# -gt 0 ]; do
             INSTALL_DIR="$2"; shift 2 ;;
         --help|-h)
             echo "Usage: install.sh [--version VERSION] [--dir INSTALL_DIR]"
-            echo "  --version   Version to install (default: ${DEFAULT_VERSION})"
+            echo "  --version   Version to install (default: latest GitHub release)"
             echo "  --dir       Installation directory (default: /usr/local/bin)"
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
+resolve_version() {
+    if [ "$VERSION" != "latest" ]; then
+        case "$VERSION" in
+            v*) ;;
+            *) echo "${RED}Version must start with v, for example v0.1.0.${NC}"; exit 1 ;;
+        esac
+        return
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
+        VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+            | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            | head -1)
+    elif command -v wget >/dev/null 2>&1; then
+        VERSION=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+            | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            | head -1)
+    fi
+
+    if [ -z "$VERSION" ]; then
+        echo "${RED}Could not resolve latest release for ${REPO}.${NC}"
+        exit 1
+    fi
+}
+
+download_asset() {
+    url="$1"
+    dest="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url" -o "$dest"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q "$url" -O "$dest"
+    else
+        echo "${RED}Need curl or wget to download.${NC}"
+        return 1
+    fi
+}
+
+resolve_version
+
 # ── Detect platform ──
 OS=$(uname -s)
 ARCH=$(uname -m)
 
 case "$OS" in
-    Linux)  PLATFORM="unknown-linux-musl" ;;
+    Linux)  PLATFORM="linux" ;;
     Darwin) PLATFORM="apple-darwin" ;;
     *)      echo "${RED}Unsupported OS: $OS${NC}"; exit 1 ;;
 esac
@@ -61,9 +102,14 @@ case "$ARCH" in
     *) echo "${RED}Unsupported arch: $ARCH${NC}"; exit 1 ;;
 esac
 
-TARGET="${ARCH_TARGET}-${PLATFORM}"
+TARGET="${ARCH_TARGET}-${PLATFORM}-musl"
+FALLBACK_TARGET="$TARGET"
+if [ "$PLATFORM" = "linux" ]; then
+    FALLBACK_TARGET="${ARCH_TARGET}-unknown-linux-musl"
+fi
 ARCHIVE="axga-${VERSION}-${TARGET}.tar.gz"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
+CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}.sha256"
 
 echo "${CYAN}axga installer${NC}"
 echo "  Platform: ${TARGET}"
@@ -76,20 +122,29 @@ echo "Downloading ${DOWNLOAD_URL}..."
 TMP_DIR=$(mktemp -d)
 trap "rm -rf $TMP_DIR" EXIT
 
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE"
-elif command -v wget >/dev/null 2>&1; then
-    wget -q "$DOWNLOAD_URL" -O "$TMP_DIR/$ARCHIVE"
-else
-    echo "${RED}Need curl or wget to download.${NC}"
-    exit 1
+if ! download_asset "$DOWNLOAD_URL" "$TMP_DIR/$ARCHIVE"; then
+    if [ "$FALLBACK_TARGET" != "$TARGET" ]; then
+        FALLBACK_ARCHIVE="axga-${VERSION}-${FALLBACK_TARGET}.tar.gz"
+        FALLBACK_DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FALLBACK_ARCHIVE}"
+        FALLBACK_CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FALLBACK_ARCHIVE}.sha256"
+
+        echo "  Primary asset not found; trying ${FALLBACK_TARGET}..."
+        if download_asset "$FALLBACK_DOWNLOAD_URL" "$TMP_DIR/$FALLBACK_ARCHIVE"; then
+            ARCHIVE="$FALLBACK_ARCHIVE"
+            DOWNLOAD_URL="$FALLBACK_DOWNLOAD_URL"
+            CHECKSUM_URL="$FALLBACK_CHECKSUM_URL"
+        else
+            echo "${RED}Failed to download ${ARCHIVE} or ${FALLBACK_ARCHIVE}.${NC}"
+            exit 1
+        fi
+    else
+        echo "${RED}Failed to download ${ARCHIVE}.${NC}"
+        exit 1
+    fi
 fi
 
 # ── Checksum verification (on archive, before extraction) ──
 verify_checksum() {
-    CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}.sha256"
-    # The CI publishes .tar.gz.sha256 files containing the SHA256 of the archive,
-    # not the binary inside — so we hash the archive file for comparison.
     if command -v curl >/dev/null 2>&1; then
         EXPECTED=$(curl -fsSL "$CHECKSUM_URL" 2>/dev/null | awk '{print $1}')
     elif command -v wget >/dev/null 2>&1; then

@@ -11,8 +11,8 @@ license=('MIT')
 
 _platform() {
   case "$CARCH" in
-    x86_64)  echo "x86_64-unknown-linux-musl" ;;
-    aarch64) echo "aarch64-unknown-linux-musl" ;;
+    x86_64)  echo "x86_64-linux-musl" ;;
+    aarch64) echo "aarch64-linux-musl" ;;
     *)       echo "unsupported"; return 1 ;;
   esac
 }

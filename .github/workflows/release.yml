@@ -22,28 +22,34 @@ jobs:
         include:
           # ── Linux (musl) ──
           - target: x86_64-unknown-linux-musl
+            asset_target: x86_64-linux-musl
             os: ubuntu-latest
             features: ""
             suffix: ""
           - target: x86_64-unknown-linux-musl
+            asset_target: x86_64-linux-musl
             os: ubuntu-latest
             features: "browser"
             suffix: "-browser"
           - target: x86_64-unknown-linux-musl
+            asset_target: x86_64-linux-musl
             os: ubuntu-latest
             features: ""
             suffix: "-minimal"
             no_default_features: true
           - target: aarch64-unknown-linux-musl
+            asset_target: aarch64-linux-musl
             os: ubuntu-latest
             features: ""
             suffix: ""
           # ── macOS ──
           - target: x86_64-apple-darwin
+            asset_target: x86_64-apple-darwin
             os: macos-13
             features: ""
             suffix: ""
           - target: aarch64-apple-darwin
+            asset_target: aarch64-apple-darwin
             os: macos-latest
             features: ""
             suffix: ""
@@ -54,7 +60,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.88"
+          toolchain: "1.88.0"
           targets: ${{ matrix.target }}
 
       - name: Install musl tools (Linux only)
@@ -90,20 +96,20 @@ jobs:
       - name: Generate SHA256
         run: |
           cd target/${{ matrix.target }}/release
-          sha256sum ${{ env.BINARY_NAME }} > ${{ env.BINARY_NAME }}-${{ matrix.target }}${{ matrix.suffix }}.sha256
+          sha256sum ${{ env.BINARY_NAME }} > ${{ env.BINARY_NAME }}-${{ matrix.asset_target }}${{ matrix.suffix }}.sha256
 
       - name: Create archive
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czf ${{ env.BINARY_NAME }}-${{ matrix.target }}${{ matrix.suffix }}.tar.gz ${{ env.BINARY_NAME }}
+          tar -czf ${{ env.BINARY_NAME }}-${{ matrix.asset_target }}${{ matrix.suffix }}.tar.gz ${{ env.BINARY_NAME }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}${{ matrix.suffix }}
           path: |
-            target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}-${{ matrix.target }}${{ matrix.suffix }}.tar.gz
-            target/${{ matrix.target }}/release/*.sha256
+            target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}-${{ matrix.asset_target }}${{ matrix.suffix }}.tar.gz
+            target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}-${{ matrix.asset_target }}${{ matrix.suffix }}.sha256
 
   release:
     name: Create Release
@@ -121,10 +127,11 @@ jobs:
           for dir in artifacts/*; do
             for file in "$dir"/*; do
               fname=$(basename "$file")
-              # Rename: axga-<target>.tar.gz → axga-v<version>-<target>.tar.gz
-              # Rename: axga-<target>.sha256 → axga-v<version>-<target>.sha256
-              # (the .tar.gz.sha256 files are generated separately below)
-              newname=$(echo "$fname" | sed "s/^axga-/axga-v${VERSION}-/")
+              # Rename: axga-<asset-target>.tar.gz → axga-v<version>-<asset-target>.tar.gz
+              # Rename: axga-<asset-target>.sha256 → axga-v<version>-<asset-target>.sha256
+              # The installer prefers x86_64-linux-musl/aarch64-linux-musl and falls back
+              # to the Rust target spelling x86_64-unknown-linux-musl if needed.
+              newname=$(echo "$fname" | sed "s/^axga-/axga-${VERSION}-/")
               cp "$file" "release/$newname"
             done
           done
@@ -147,11 +154,11 @@ jobs:
             ```
 
             ### Assets
-            - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz` — Standard build (10 tools)
-            - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl-browser.tar.gz` — With browser support
-            - `axga-v${{ github.ref_name }}-x86_64-unknown-linux-musl-minimal.tar.gz` — Minimal build (no extras)
-            - `axga-v${{ github.ref_name }}-aarch64-unknown-linux-musl.tar.gz` — Linux ARM64
-            - `axga-v${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` — macOS Intel
-            - `axga-v${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` — macOS Apple Silicon
+            - `axga-${{ github.ref_name }}-x86_64-linux-musl.tar.gz` — Standard build
+            - `axga-${{ github.ref_name }}-x86_64-linux-musl-browser.tar.gz` — With browser support
+            - `axga-${{ github.ref_name }}-x86_64-linux-musl-minimal.tar.gz` — Minimal build
+            - `axga-${{ github.ref_name }}-aarch64-linux-musl.tar.gz` — Linux ARM64
+            - `axga-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` — macOS Intel
+            - `axga-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` — macOS Apple Silicon
           files: release/*
           generate_release_notes: true

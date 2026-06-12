@@ -240,7 +240,7 @@ pub async fn run_discord_bot(
 
                 // Build thread context from recent history (so LLM can follow conversation)
                 let user_input = strip_mention(&content, &bot_name);
-                let thread_context = build_thread_context(&history, &bot_name, &author, &user_input);
+                let thread_context = build_thread_context(&history, &bot_name, author, &user_input);
 
                 // ── Show typing indicator ──
                 let typing_url = format!(
