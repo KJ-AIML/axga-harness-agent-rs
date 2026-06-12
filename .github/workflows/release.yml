@@ -44,11 +44,12 @@ jobs:
           #   features: ""
           #   suffix: ""
           # ── macOS ──
-          - target: x86_64-apple-darwin
-            asset_target: x86_64-apple-darwin
-            os: macos-13
-            features: ""
-            suffix: ""
+          # TODO: re-enable when macos-13 runner capacity improves (GitHub is deprecating it)
+          # - target: x86_64-apple-darwin
+          #   asset_target: x86_64-apple-darwin
+          #   os: macos-13
+          #   features: ""
+          #   suffix: ""
           - target: aarch64-apple-darwin
             asset_target: aarch64-apple-darwin
             os: macos-latest
@@ -158,7 +159,6 @@ jobs:
             - `axga-${{ github.ref_name }}-x86_64-linux-musl.tar.gz` — Standard build
             - `axga-${{ github.ref_name }}-x86_64-linux-musl-browser.tar.gz` — With browser support
             - `axga-${{ github.ref_name }}-x86_64-linux-musl-minimal.tar.gz` — Minimal build
-            - `axga-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` — macOS Intel
             - `axga-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` — macOS Apple Silicon
           files: release/*
           generate_release_notes: true
