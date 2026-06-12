@@ -9,7 +9,7 @@ class Axga < Formula
       url "https://github.com/KJ-AIML/axga-harness-agent-rs/releases/download/v#{version}/axga-v#{version}-x86_64-linux-musl.tar.gz"
       sha256 "# FILL at release time with scripts/sha256-update.sh"
     elsif Hardware::CPU.arm?
-      url "https://github.com/KJ-AIML/axga-harness-agent-rs/releases/download/v#{version}/axga-v#{version}-aarch64-linux-musl.tar.gz"
+      url "https://github.com/KJ-AIML/axga-harness-agent-rs/releases/download/v#{version}/axga-v#{version}-aarch64-linux-gnu.tar.gz"
       sha256 "# FILL at release time with scripts/sha256-update.sh"
     end
   end

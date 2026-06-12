@@ -37,8 +37,8 @@ jobs:
             features: ""
             suffix: "-minimal"
             no_default_features: true
-          - target: aarch64-unknown-linux-musl
-            asset_target: aarch64-linux-musl
+          - target: aarch64-unknown-linux-gnu
+            asset_target: aarch64-linux-gnu
             os: ubuntu-latest
             features: ""
             suffix: ""
@@ -68,7 +68,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install cross-compilers (Linux arm64)
-        if: matrix.target == 'aarch64-unknown-linux-musl'
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Cache cargo
@@ -157,7 +157,7 @@ jobs:
             - `axga-${{ github.ref_name }}-x86_64-linux-musl.tar.gz` — Standard build
             - `axga-${{ github.ref_name }}-x86_64-linux-musl-browser.tar.gz` — With browser support
             - `axga-${{ github.ref_name }}-x86_64-linux-musl-minimal.tar.gz` — Minimal build
-            - `axga-${{ github.ref_name }}-aarch64-linux-musl.tar.gz` — Linux ARM64
+            - `axga-${{ github.ref_name }}-aarch64-linux-gnu.tar.gz` — Linux ARM64
             - `axga-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` — macOS Intel
             - `axga-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` — macOS Apple Silicon
           files: release/*

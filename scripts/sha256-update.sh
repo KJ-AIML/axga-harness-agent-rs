@@ -41,7 +41,7 @@ update_brew_sha() {
 echo ""
 echo "Homebrew formula:"
 update_brew_sha "x86_64-linux-musl"
-update_brew_sha "aarch64-linux-musl"
+update_brew_sha "aarch64-linux-gnu"
 update_brew_sha "x86_64-apple-darwin"
 update_brew_sha "aarch64-apple-darwin"
 
@@ -53,7 +53,7 @@ PKGBUILD_FILE="${REPO_ROOT}/scripts/aur/PKGBUILD"
 
 echo ""
 echo "AUR PKGBUILD:"
-for arch_label in "x86_64-linux-musl" "aarch64-linux-musl"; do
+for arch_label in "x86_64-linux-musl" "aarch64-linux-gnu"; do
     ARCHIVE="axga-${VERSION}-${arch_label}.tar.gz"
     if [ -f "$ARCHIVE" ]; then
         SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')

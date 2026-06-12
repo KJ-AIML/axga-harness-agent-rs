@@ -103,9 +103,11 @@ case "$ARCH" in
 esac
 
 TARGET="${ARCH_TARGET}-${PLATFORM}-musl"
-FALLBACK_TARGET="$TARGET"
+
+# Build up a list of fallback targets to try if the primary asset is not found.
+FALLBACKS=""
 if [ "$PLATFORM" = "linux" ]; then
-    FALLBACK_TARGET="${ARCH_TARGET}-unknown-linux-musl"
+    FALLBACKS="${ARCH_TARGET}-unknown-linux-musl ${ARCH_TARGET}-linux-gnu"
 fi
 ARCHIVE="axga-${VERSION}-${TARGET}.tar.gz"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
@@ -123,22 +125,23 @@ TMP_DIR=$(mktemp -d)
 trap "rm -rf $TMP_DIR" EXIT
 
 if ! download_asset "$DOWNLOAD_URL" "$TMP_DIR/$ARCHIVE"; then
-    if [ "$FALLBACK_TARGET" != "$TARGET" ]; then
-        FALLBACK_ARCHIVE="axga-${VERSION}-${FALLBACK_TARGET}.tar.gz"
-        FALLBACK_DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FALLBACK_ARCHIVE}"
-        FALLBACK_CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FALLBACK_ARCHIVE}.sha256"
+    FOUND=0
+    for fb in $FALLBACKS; do
+        FB_ARCHIVE="axga-${VERSION}-${fb}.tar.gz"
+        FB_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FB_ARCHIVE}"
+        FB_CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FB_ARCHIVE}.sha256"
 
-        echo "  Primary asset not found; trying ${FALLBACK_TARGET}..."
-        if download_asset "$FALLBACK_DOWNLOAD_URL" "$TMP_DIR/$FALLBACK_ARCHIVE"; then
-            ARCHIVE="$FALLBACK_ARCHIVE"
-            DOWNLOAD_URL="$FALLBACK_DOWNLOAD_URL"
-            CHECKSUM_URL="$FALLBACK_CHECKSUM_URL"
-        else
-            echo "${RED}Failed to download ${ARCHIVE} or ${FALLBACK_ARCHIVE}.${NC}"
-            exit 1
+        echo "  Primary asset not found; trying ${fb}..."
+        if download_asset "$FB_URL" "$TMP_DIR/$FB_ARCHIVE"; then
+            ARCHIVE="$FB_ARCHIVE"
+            DOWNLOAD_URL="$FB_URL"
+            CHECKSUM_URL="$FB_CHECKSUM_URL"
+            FOUND=1
+            break
         fi
-    else
-        echo "${RED}Failed to download ${ARCHIVE}.${NC}"
+    done
+    if [ "$FOUND" -eq 0 ]; then
+        echo "${RED}Failed to download any asset for ${TARGET}. Tried: $TARGET $FALLBACKS${NC}"
         exit 1
     fi
 fi
